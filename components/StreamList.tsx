@@ -8,6 +8,7 @@ export interface StreamRow {
   host_name: string;
   brand: string;
   period: string;
+  status?: string;
   sale: string;
   platform: string;
   room: string;
@@ -25,7 +26,12 @@ export default function StreamList({ streams, showHost = false }: { streams: Str
           <div className="day-head">{fmtDate(date)}</div>
           {rows.map(s => (
             <div key={s.id} className="stream">
-              <div className="time">{fmtRange(s.start_min, s.end_min)}</div>
+              <div className="time">
+                {fmtRange(s.start_min, s.end_min)}
+                <div>{s.status === 'confirmed'
+                  ? <span className="badge ok">{'\u2713'} Confirmed</span>
+                  : <span className="badge warn" title="This stream may still change. You'll see it marked Confirmed once it's locked in.">Tentative</span>}</div>
+              </div>
               <div>
                 <strong>{s.brand}</strong> <span className="muted">on</span> {s.platform}
                 {showHost && <> &middot; {s.host_name || <span className="badge bad">No host</span>}</>}

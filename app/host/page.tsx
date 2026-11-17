@@ -27,7 +27,7 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
       const asCalendar = sp.view === 'calendar';
       const streams = current.published_run_id
         ? await query<StreamRow>(
-          `SELECT id, date, start_min, end_min, host_name, brand, period, sale, platform, room
+          `SELECT id, date, start_min, end_min, host_name, brand, period, sale, platform, room, status
            FROM scheduled_streams WHERE run_id = $1 AND host_id = $2 ORDER BY date, start_min`, [current.published_run_id, user.hostId])
         : [];
       content = current.published_run_id ? (
@@ -35,7 +35,9 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
           <h2 style={{ marginTop: 0 }}>Your streams in {monthLabel(current.year, current.month)}</h2>
           <div className="inline" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', marginBottom: 8 }}>
             <p className="muted" style={{ margin: 0 }}>
-              <span className="badge ok">Confirmed</span> {streams.length} stream{streams.length === 1 ? '' : 's'} for you this month
+              {streams.length} stream{streams.length === 1 ? '' : 's'} for you this month:{' '}
+              <span className="badge ok">{streams.filter(x => x.status === 'confirmed').length} confirmed</span>{' '}
+              {streams.some(x => x.status !== 'confirmed') && <span className="badge warn">{streams.filter(x => x.status !== 'confirmed').length} tentative</span>}
               {' \u00b7 '}{Math.round(streams.reduce((a, x) => a + (x.end_min - x.start_min), 0) / 6) / 10} hours.
             </p>
             <span className="inline small">

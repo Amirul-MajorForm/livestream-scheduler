@@ -78,8 +78,10 @@ const ADMIN_STEPS: Step[] = [
     body: 'List is best for checking and editing (click a column heading to sort, e.g. by host). Calendar shows the month at a glance. Summary explains every unfulfilled commitment.' },
   { on: runView('list'), go: toRun('list'), target: 'run-table', title: 'Tags and fixes',
     body: 'Amber and red tags are things to check: hover a tag to see exactly what’s wrong (e.g. who a host is double-booked with). Fix a row with Edit, or change settings and run again.' },
-  { on: runView('list'), go: toRun('list'), target: 'run-publish', title: 'Confirm the schedule',
-    body: 'Publish to hosts makes this the confirmed schedule: each host sees their streams under My schedule. That’s the whole cycle. Click Done to finish.' },
+  { on: runView('list'), go: toRun('list'), target: 'run-table', title: 'Confirm streams one by one',
+    body: 'Each stream has a Status: Tentative or Confirmed. Confirm a stream once it\u2019s agreed: it locks (no edits until you unconfirm), the host sees it as Confirmed, and re-running the scheduler keeps it. Use \u201cConfirm all\u201d above the list to confirm everything shown, e.g. one host or brand at a time.' },
+  { on: runView('list'), go: toRun('list'), target: 'run-publish', title: 'Publish to hosts',
+    body: 'Publishing shows this version to hosts under My schedule, each stream marked Confirmed or Tentative. That’s the whole cycle. Click Done to finish.' },
 ];
 
 const toHost = (tab: string) => (l: Loc) => {

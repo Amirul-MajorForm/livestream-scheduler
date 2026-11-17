@@ -11,6 +11,7 @@ export interface CalStream {
   brand: string;
   period: string;
   sale?: string;
+  status?: string;
   platform: string;
   room: string;
 }
@@ -56,15 +57,16 @@ export default function MonthCalendar({ year, month, streams, saleDays, showHost
                 </div>
                 {(byDay.get(d) || []).map(s => {
                   const list = issues?.get(s.id) || [];
-                  const cls = 'cal-item' + (s.period === 'MEGA' ? ' mega' : '') +
+                  const cls = 'cal-item' + (s.period === 'MEGA' ? ' mega' : '') + (s.status === 'confirmed' ? ' confirmed' : '') +
                     (list.length ? (list.some(x => x.severity === 'bad') ? ' bad' : ' flag') : '');
                   const tip = [
                     fmtRange(s.start_min, s.end_min) + ' ' + s.brand + ':',
-                    [s.platform, s.host_name || 'No host', s.room || 'No room', s.period + (s.period === 'MEGA' && s.sale ? ' ' + s.sale : '')].join(' · '),
+                    [s.platform, s.host_name || 'No host', s.room || 'No room', s.period + (s.period === 'MEGA' && s.sale ? ' ' + s.sale : ''), s.status === 'confirmed' ? 'Confirmed' : 'Tentative'].join(' · '),
                     ...list.map(x => '\n' + x.tag + ': ' + x.detail),
                   ].join('\n');
                   const body = (
                     <>
+                      {s.status === 'confirmed' && <span className="ck" title="Confirmed">{'\u2713'} </span>}
                       <span className="t">{formatTime(s.start_min)}</span> <strong>{s.brand}</strong>{' '}
                       <span className="muted">{PLATFORM_SHORT[s.platform] || s.platform}</span>
                       {showHost && <div className={s.host_name ? 'h' : 'h nohost'}>{s.host_name || 'No host'}</div>}

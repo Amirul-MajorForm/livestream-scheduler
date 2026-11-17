@@ -47,6 +47,11 @@ export async function loadSchedulerInput(monthId: number): Promise<SchedulerInpu
            WHERE p.month_id = $1 ORDER BY p.sort_order, p.id`, [monthId]),
   ]);
 
+  const confirmed = m.published_run_id
+    ? await query(`SELECT * FROM scheduled_streams WHERE run_id = $1 AND status = 'confirmed' AND host_name <> '' ORDER BY date, start_min`, [m.published_run_id])
+    : [];
+  const confirmedKeys = new Set(confirmed.map(c => slotKey(c.date, c.start_min, c.brand, c.platform)));
+
   const prefsByHost = new Map<number, Record<string, PrefLevel>>();
   prefs.forEach(p => {
     if (!prefsByHost.has(p.host_id)) prefsByHost.set(p.host_id, {});
@@ -70,7 +75,16 @@ export async function loadSchedulerInput(monthId: number): Promise<SchedulerInpu
     })),
     availability: avail.map(a => ({ host: a.host, day: Number(String(a.date).slice(8, 10)), slot: a.slot })),
     commitments: commitments.map((c, i) => ({ id: i, brand: c.brand, period: c.period, sale: c.sale, platform: c.platform, qty: c.qty, priority: c.priority })),
-    preplanned: preplanned.map(p => ({
+    preplanned: [
+      // Streams confirmed in the published version are locked in as fixed bookings (host and room kept).
+      ...confirmed.map(c => ({
+        day: Number(String(c.date).slice(8, 10)),
+        start: c.start_min, end: c.end_min, host: c.host_name, brand: c.brand,
+        period: String(c.period).toLowerCase(), sale: c.sale, platform: c.platform, room: c.room,
+        source: CONFIRMED_PREFIX + c.brand + ' ' + Number(String(c.date).slice(8, 10)) + ' ' + MONTH_NAMES[m.month].slice(0, 3) + ' ' + formatTime(c.start_min),
+      })),
+      // Pre-planned bookings, minus any already covered by a confirmed stream.
+      ...preplanned.filter(p => !confirmedKeys.has(slotKey(p.date, p.start_min, p.brand, p.platform))).map(p => ({
       day: Number(String(p.date).slice(8, 10)),
       start: p.start_min,
       end: p.end_min,
@@ -82,8 +96,13 @@ export async function loadSchedulerInput(monthId: number): Promise<SchedulerInpu
       room: p.room,
       source: 'Pre-planned ' + p.brand + ' ' + Number(String(p.date).slice(8, 10)) + ' ' + MONTH_NAMES[m.month].slice(0, 3) + ' ' + formatTime(p.start_min),
     })),
+    ],
   };
 }
+
+const CONFIRMED_PREFIX = 'Confirmed ';
+const slotKey = (date: string, start: number, brand: string, platform: string) =>
+  [String(date), start, brand.toLowerCase(), platform.toLowerCase()].join('|');
 
 /** Runs the scheduler for a month and stores the result as a new draft run. */
 export async function runAndSave(monthId: number, userId: number, label: string) {
@@ -100,9 +119,10 @@ export async function runAndSave(monthId: number, userId: number, label: string)
     const id = run.rows[0].id as number;
     for (const s of result.streams) {
       await c.query(
-        `INSERT INTO scheduled_streams(run_id, date, start_min, end_min, host_id, host_name, brand, period, sale, platform, room, fixed, auto_assigned_host)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [id, isoDate(input.year, input.month, s.day), s.start, s.end, hostIds.get(s.host) ?? null, s.host, s.brand, s.period, s.sale.trim(), s.platform, s.room, s.fixed, s.autoAssignedHost],
+        `INSERT INTO scheduled_streams(run_id, date, start_min, end_min, host_id, host_name, brand, period, sale, platform, room, fixed, auto_assigned_host, status, confirmed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, CASE WHEN $14 = 'confirmed' THEN now() END)`,
+        [id, isoDate(input.year, input.month, s.day), s.start, s.end, hostIds.get(s.host) ?? null, s.host, s.brand, s.period, s.sale.trim(), s.platform, s.room, s.fixed, s.autoAssignedHost,
+          s.source?.startsWith(CONFIRMED_PREFIX) ? 'confirmed' : 'tentative'],
       );
     }
     return id;

@@ -6,12 +6,13 @@ import { fmtDate, fmtDateTime, fmtRange, formatTime, SLOTS } from '@/lib/format'
 import { START_MINS, type SummarySection } from '@/lib/scheduler';
 import Flash from '@/components/Flash';
 import ConfirmButton from '@/components/ConfirmButton';
+import AutoSubmitSelect from '@/components/AutoSubmitSelect';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import MonthCalendar, { type CalStream } from '@/components/MonthCalendar';
 import FlagLegend, { FLAG_HELP } from '@/components/FlagLegend';
 import { findIssues } from '@/lib/issues';
 import { brandStats, SESSION_HOURS } from '@/lib/brandStats';
-import { publishRun, unpublishMonth, deleteRun, renameRun, duplicateRun, updateStream, deleteStream, addStream } from '../../actions';
+import { publishRun, unpublishMonth, deleteRun, renameRun, duplicateRun, updateStream, deleteStream, addStream, setStreamStatus, setManyStatus } from '../../actions';
 
 type SP = { view?: string; host?: string; brand?: string; show?: string; edit?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
 const PLATFORMS = ['TikTok', 'Shopee', 'TikTok & Shopee'];
@@ -36,7 +37,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   const published = m.published_run_id === run.id;
   const view = VIEWS.some(v => v[0] === sp.view) ? sp.view! : 'list';
   const hostFilter = sp.host ? Number(sp.host) : null;
-  const show = ['flagged', 'nohost', 'edited'].includes(sp.show || '') ? sp.show! : '';
+  const show = ['flagged', 'nohost', 'edited', 'confirmed', 'tentative'].includes(sp.show || '') ? sp.show! : '';
   const { sort, dir } = readSort(sp, ['date', 'host', 'brand', 'platform', 'room', 'period'], 'date');
 
   // Warnings with explanations (re-checked on every page load, so they reflect manual edits).
@@ -56,6 +57,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   if (show === 'flagged') shown = shown.filter(s => conflicts.has(s.id));
   if (show === 'nohost') shown = shown.filter(s => !s.host_name);
   if (show === 'edited') shown = shown.filter(s => s.edited);
+  if (show === 'confirmed' || show === 'tentative') shown = shown.filter(s => s.status === show);
   const sortKey: Record<string, (s: any) => string | number> = {
     date: s => s.date + String(s.start_min).padStart(4, '0'),
     host: s => s.host_name, brand: s => s.brand, platform: s => s.platform, room: s => s.room, period: s => s.period,
@@ -79,6 +81,8 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   const totC = tot.bauC + tot.megaC, totF = tot.bauF + tot.megaF, totShort = totC - totF;
   const pctOf = (f: number, c: number) => c ? Math.round((f / c) * 100) : 100;
   const saleName = new Map(sales.map(x => [String(x.name).toLowerCase(), String(x.name)]));
+  const confirmedCount = streams.filter(x => x.status === 'confirmed').length;
+  const confirmedHours = shownHours(streams.filter(x => x.status === 'confirmed'));
   const listView = view === 'summary' || view === 'grid' ? 'list' : view;
   const sortParams = { view: view === 'list' ? undefined : view, host: sp.host, brand: sp.brand, show: sp.show };
   const noHost = streams.filter(s => !s.host_name).length;
@@ -118,34 +122,30 @@ export default async function RunPage({ params, searchParams }: { params: Promis
       <Flash sp={sp} />
       {published && <div className="notice info">This version is live: edits here are visible to hosts straight away. Use Duplicate to work on a draft copy.</div>}
 
-      <div className="stats" data-tour="run-stats">
-        <div className="stat" data-tip={'Committed hours:\nAll sessions on the Commitments tab for this month, at 2 hours each.'}>
-          <div className="n">{hrs(H(totC))} h</div>
-          <div className="l">Committed &middot; {totC} sessions</div>
-          <div className="l">BAU <strong>{hrs(H(tot.bauC))} h</strong> &middot; Mega <strong>{hrs(H(tot.megaC))} h</strong></div>
+      <div className="kpis" data-tour="run-stats">
+        <div className="kpi" data-tip={'Committed hours:\nAll sessions on the Commitments tab for this month, at 2 hours each.'}>
+          <div className="v">{hrs(H(totC))} h <small>committed</small></div>
+          <div className="s">BAU {hrs(H(tot.bauC))} &middot; Mega {hrs(H(tot.megaC))} &middot; {totC} sessions</div>
         </div>
-        <div className="stat" data-tip={'Fulfilled hours:\nCommitted sessions covered by a stream with a host in this version. Updates when you edit streams.'}>
-          <div className="n" style={{ color: 'var(--ok)' }}>{hrs(H(totF))} h</div>
-          <div className="l">Fulfilled &middot; {pctOf(totF, totC)}% &middot; {totF} sessions</div>
-          <div className="l">BAU <strong>{hrs(H(tot.bauF))}/{hrs(H(tot.bauC))} h</strong> &middot; Mega <strong>{hrs(H(tot.megaF))}/{hrs(H(tot.megaC))} h</strong></div>
+        <div className="kpi" data-tip={'Fulfilled hours:\nCommitted sessions covered by a stream with a host in this version. Updates when you edit streams.'}>
+          <div className="v ok">{hrs(H(totF))} h <small>fulfilled &middot; {pctOf(totF, totC)}%</small></div>
+          <div className="s">BAU {hrs(H(tot.bauF))}/{hrs(H(tot.bauC))} &middot; Mega {hrs(H(tot.megaF))}/{hrs(H(tot.megaC))}</div>
         </div>
-        <Link className="stat" href={`${base}?view=summary`} data-tip={'Not fulfilled:\nCommitted hours with no stream yet. Click for the scheduler\u2019s reason for each one.'}>
-          <div className="n" style={{ color: totShort ? 'var(--bad)' : undefined }}>{hrs(H(totShort))} h</div>
-          <div className="l">Not fulfilled &middot; {totShort} sessions &middot; see why</div>
-          <div className="l">BAU <strong>{hrs(H(tot.bauC - tot.bauF))} h</strong> &middot; Mega <strong>{hrs(H(tot.megaC - tot.megaF))} h</strong></div>
+        <Link className="kpi" href={`${base}?view=summary`} data-tip={'Not fulfilled:\nCommitted hours with no stream yet. Click for the scheduler\u2019s reason for each one.'}>
+          <div className={'v' + (totShort ? ' bad' : '')}>{hrs(H(totShort))} h <small>short</small></div>
+          <div className="s">BAU {hrs(H(tot.bauC - tot.bauF))} &middot; Mega {hrs(H(tot.megaC - tot.megaF))} &middot; see why</div>
         </Link>
-        <Link className="stat" href={qs({ show: undefined, brand: undefined })} data-tip={'Streams in this version:\nEverything on the schedule, including pre-planned bookings beyond commitments and manual additions. Hours use each stream\u2019s actual length.'}>
-          <div className="n">{hrs(scheduledHours)} h</div>
-          <div className="l">Scheduled &middot; {streams.length} streams</div>
-          {(hostFilter || show || sp.brand) && <div className="l">Showing {shown.length} &middot; {hrs(shownHours(shown))} h</div>}
+        <Link className="kpi" href={qs({ show: 'confirmed', view: listView })} data-tip={'Scheduled and confirmed:\nAll streams in this version (actual lengths), and how many you have confirmed. Click to list the confirmed ones.'}>
+          <div className="v">{hrs(scheduledHours)} h <small>scheduled</small></div>
+          <div className="s">{streams.length} streams &middot; <span className="okt">{confirmedCount} confirmed ({hrs(confirmedHours)} h)</span></div>
         </Link>
-        <Link className="stat" href={qs({ show: 'nohost', view: listView })} data-tip={'Streams without a host:\n' + FLAG_HELP['No host'] + '\nClick to list them, then hover the red tag for the reason.'}>
-          <div className="n" style={{ color: noHost ? 'var(--bad)' : undefined }}>{noHost}</div>
-          <div className="l">Without a host &middot; <strong>{hrs(shownHours(streams.filter(x => !x.host_name)))} h</strong></div>
+        <Link className="kpi" href={qs({ show: 'nohost', view: listView })} data-tip={'Streams without a host:\n' + FLAG_HELP['No host'] + '\nClick to list them, then hover the red tag for the reason.'}>
+          <div className={'v' + (noHost ? ' bad' : '')}>{noHost} <small>no host</small></div>
+          <div className="s">{hrs(shownHours(streams.filter(x => !x.host_name)))} h</div>
         </Link>
-        <Link className="stat" href={qs({ show: 'flagged', view: listView })} data-tip={'Streams with warnings:\nStreams with an amber or red tag. Hover any tag to see exactly what is wrong. Warnings never block publishing.'}>
-          <div className="n" style={{ color: conflicts.size ? 'var(--warn)' : undefined }}>{conflicts.size}</div>
-          <div className="l">With warnings &middot; click to list</div>
+        <Link className="kpi" href={qs({ show: 'flagged', view: listView })} data-tip={'Streams with warnings:\nStreams with an amber or red tag. Hover any tag to see exactly what is wrong. Warnings never block publishing.'}>
+          <div className={'v' + (conflicts.size ? ' warn' : '')}>{conflicts.size} <small>warnings</small></div>
+          <div className="s">click to list</div>
         </Link>
       </div>
 
@@ -153,7 +153,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
         <summary>
           <strong>By brand</strong>{' '}
           <span className="small muted">
-            {brands_.filter(b => b.committed > b.fulfilled).length} of {brands_.filter(b => b.committed).length} brands short &middot; sorted by most hours short &middot; click a brand to see its streams
+            {brands_.filter(b => b.committed > b.fulfilled).length} of {brands_.filter(b => b.committed).length} short &middot; hover for detail, click to filter
           </span>
         </summary>
         <div className="brand-grid">
@@ -163,26 +163,24 @@ export default async function RunPage({ params, searchParams }: { params: Promis
               `${l.period === 'mega' ? 'Mega' : 'BAU'} ${l.platform}${l.period === 'mega' ? ' (' + l.sale.split(',').map(x => saleName.get(x.trim()) || x.trim()).join(', ') + ')' : ''}: ${H(l.fulfilled)}/${H(l.committed)} h`).join('\n') +
               (b.extraStreams ? `\nPlus ${b.extraStreams} stream${b.extraStreams === 1 ? '' : 's'} (${hrs(b.extraHours)} h) beyond the commitments.` : '');
             const active = sp.brand?.toLowerCase() === b.brand.toLowerCase();
+            const part = (k: 'bau' | 'mega') => b[k].committed > 0 && (
+              <span key={k}>{k === 'bau' ? 'BAU' : 'Mega'} {hrs(H(b[k].fulfilled))}/{hrs(H(b[k].committed))}
+                {b[k].committed > b[k].fulfilled && <em> &minus;{hrs(H(b[k].committed - b[k].fulfilled))}</em>}</span>
+            );
             return (
               <Link key={b.brand} href={active ? qs({ brand: undefined }) : qs({ brand: b.brand, view: listView })}
                 className={'brand-tile' + (active ? ' on' : '') + (short ? ' short' : b.committed ? ' done' : '')} data-tip={tip}>
                 <div className="bt-head">
                   <strong>{b.brand}</strong>
-                  {b.committed > 0 && (short ? <span className="badge bad">{hrs(H(short))} h short</span> : <span className="badge ok">Done</span>)}
+                  {b.committed > 0
+                    ? <span className={short ? 'bt-short' : 'bt-done'}>{hrs(H(b.fulfilled))}/{hrs(H(b.committed))} h</span>
+                    : <span className="muted">extra only</span>}
                 </div>
-                {b.committed > 0 ? (
-                  <>
-                    <div className="bt-n">{hrs(H(b.fulfilled))} <span className="muted">/ {hrs(H(b.committed))} h</span></div>
-                    <div className="bar"><span style={{ width: pctOf(b.fulfilled, b.committed) + '%' }} /></div>
-                    {(['bau', 'mega'] as const).filter(k => b[k].committed > 0).map(k => (
-                      <div key={k} className="bt-line">
-                        <span>{k === 'bau' ? 'BAU' : 'Mega'}</span>
-                        <span>{hrs(H(b[k].fulfilled))}/{hrs(H(b[k].committed))} h{b[k].committed > b[k].fulfilled && <em> &middot; {hrs(H(b[k].committed - b[k].fulfilled))} h short</em>}</span>
-                      </div>
-                    ))}
-                  </>
-                ) : <div className="bt-line"><span className="muted">No commitment this month</span></div>}
-                {b.extraStreams > 0 && <div className="bt-line muted"><span>Extra</span><span>{b.extraStreams} stream{b.extraStreams === 1 ? '' : 's'} &middot; {hrs(b.extraHours)} h</span></div>}
+                {b.committed > 0 && <div className="bar"><span style={{ width: pctOf(b.fulfilled, b.committed) + '%' }} /></div>}
+                <div className="bt-line">
+                  {b.committed > 0 ? <>{part('bau')}{part('mega')}</> : <span>{b.extraStreams} streams &middot; {hrs(b.extraHours)} h</span>}
+                  {b.committed > 0 && b.extraStreams > 0 && <span className="muted">+{b.extraStreams} extra</span>}
+                </div>
               </Link>
             );
           })}
@@ -194,6 +192,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
       </div>
 
       {(view === 'list' || view === 'calendar') && (
+        <div className="toolbar-row">
         <form className="inline toolbar">
           {view !== 'list' && <input type="hidden" name="view" value={view} />}
           {sp.sort && <input type="hidden" name="sort" value={sp.sort} />}
@@ -211,11 +210,32 @@ export default async function RunPage({ params, searchParams }: { params: Promis
             <option value="flagged">Only streams with warnings</option>
             <option value="nohost">Only streams without a host</option>
             <option value="edited">Only edited streams</option>
+            <option value="confirmed">Only confirmed</option>
+            <option value="tentative">Only tentative</option>
           </select>
           <button type="submit">Apply</button>
           {(hostFilter || show || sp.brand) && <Link href={qs({ host: undefined, show: undefined, brand: undefined })}>Clear</Link>}
           <span className="muted small">{shown.length} of {streams.length} streams</span>
         </form>
+        {shown.some(x => x.status !== 'confirmed' && x.host_name) && (
+          <form action={setManyStatus} className="inline">
+            <input type="hidden" name="runId" value={run.id} /><input type="hidden" name="status" value="confirmed" />
+            <input type="hidden" name="returnTo" value={qs({})} />
+            <input type="hidden" name="ids" value={shown.filter(x => x.status !== 'confirmed' && x.host_name).map(x => x.id).join(',')} />
+            <ConfirmButton className="primary" message={`Confirm ${shown.filter(x => x.status !== 'confirmed' && x.host_name).length} streams shown? Hosts will see them as confirmed and they will be locked.`}>
+              Confirm {hostFilter || sp.brand || show ? 'these' : 'all'} ({shown.filter(x => x.status !== 'confirmed' && x.host_name).length})
+            </ConfirmButton>
+          </form>
+        )}
+        {shown.some(x => x.status === 'confirmed') && (
+          <form action={setManyStatus} className="inline">
+            <input type="hidden" name="runId" value={run.id} /><input type="hidden" name="status" value="tentative" />
+            <input type="hidden" name="returnTo" value={qs({})} />
+            <input type="hidden" name="ids" value={shown.filter(x => x.status === 'confirmed').map(x => x.id).join(',')} />
+            <ConfirmButton className="link" message="Set these confirmed streams back to tentative (unlocks them)?">Unconfirm</ConfirmButton>
+          </form>
+        )}
+        </div>
       )}
 
       {view === 'list' && (
@@ -232,13 +252,14 @@ export default async function RunPage({ params, searchParams }: { params: Promis
                   <SortHeader label="Platform" k="platform" sort={sort} dir={dir} params={sortParams} />
                   <SortHeader label="Room" k="room" sort={sort} dir={dir} params={sortParams} />
                   <th>Tags</th>
+                  <th data-tip={'Status:\nTentative = may still change. Confirmed = locked in: hosts see it as confirmed, it can\u2019t be edited or removed until set back to Tentative, and re-running the scheduler keeps it.'}>Status</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {shown.map(s => sp.edit === String(s.id) ? (
                   <tr key={s.id} id={'s' + s.id} style={{ background: 'var(--accent-soft)' }}>
-                    <td colSpan={9}>
+                    <td colSpan={10}>
                       <form action={updateStream} className="form-row">
                         <input type="hidden" name="id" value={s.id} /><input type="hidden" name="runId" value={run.id} />
                         <label className="field">Date<input type="date" name="date" min={start} max={end} defaultValue={s.date} /></label>
@@ -262,7 +283,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
                     </td>
                   </tr>
                 ) : (
-                  <tr key={s.id} id={'s' + s.id}>
+                  <tr key={s.id} id={'s' + s.id} className={s.status === 'confirmed' ? 'row-confirmed' : undefined}>
                     <td className="nw">{fmtDate(s.date)}</td>
                     <td className="nw">{fmtRange(s.start_min, s.end_min)}</td>
                     <td className="nw">{s.host_name || <span className="badge bad tip" tabIndex={0} data-tip={'No host:\n' + (issues.get(s.id)?.find(i => i.tag === 'No host')?.detail || FLAG_HELP['No host'])}>No host</span>}</td>
@@ -282,17 +303,30 @@ export default async function RunPage({ params, searchParams }: { params: Promis
                       ))}
                     </td>
                     <td className="nw">
-                      <span className="row-actions">
-                        <Link href={qs({ edit: String(s.id) }) + `#s${s.id}`}>Edit</Link>
-                        <form action={deleteStream}>
-                          <input type="hidden" name="id" value={s.id} /><input type="hidden" name="runId" value={run.id} />
-                          <ConfirmButton className="link danger" message="Remove this stream from this version?">Remove</ConfirmButton>
-                        </form>
-                      </span>
+                      <form action={setStreamStatus}>
+                        <input type="hidden" name="id" value={s.id} /><input type="hidden" name="runId" value={run.id} />
+                        <input type="hidden" name="returnTo" value={qs({})} />
+                        <AutoSubmitSelect name="status" defaultValue={s.status} label={`Status of ${s.brand} ${fmtDate(s.date)}`}
+                          className={'status-select ' + s.status}
+                          options={[{ value: 'tentative', label: 'Tentative' }, { value: 'confirmed', label: '\u2713 Confirmed' }]} />
+                      </form>
+                    </td>
+                    <td className="nw">
+                      {s.status === 'confirmed' ? (
+                        <span className="small muted" data-tip={'Locked:\nConfirmed streams can\u2019t be edited or removed. Set the status back to Tentative first.'}>Locked</span>
+                      ) : (
+                        <span className="row-actions">
+                          <Link href={qs({ edit: String(s.id) }) + `#s${s.id}`}>Edit</Link>
+                          <form action={deleteStream}>
+                            <input type="hidden" name="id" value={s.id} /><input type="hidden" name="runId" value={run.id} />
+                            <ConfirmButton className="link danger" message="Remove this stream from this version?">Remove</ConfirmButton>
+                          </form>
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
-                {!shown.length && <tr><td colSpan={9} className="muted">No streams match.</td></tr>}
+                {!shown.length && <tr><td colSpan={10} className="muted">No streams match.</td></tr>}
               </tbody>
             </table>
           </div>

@@ -199,8 +199,8 @@ export async function duplicateRun(f: FormData) {
     const r = await c.query(`INSERT INTO schedule_runs(month_id, label, created_by, message, stats, sections, warnings)
       SELECT month_id, 'Copy of ' || coalesce(nullif(label,''), 'version #' || id), $2, message, stats, sections, warnings FROM schedule_runs WHERE id = $1 RETURNING id`, [runId, user.id]);
     const id = r.rows[0].id;
-    await c.query(`INSERT INTO scheduled_streams(run_id, date, start_min, end_min, host_id, host_name, brand, period, sale, platform, room, fixed, auto_assigned_host, edited)
-      SELECT $2, date, start_min, end_min, host_id, host_name, brand, period, sale, platform, room, fixed, auto_assigned_host, edited FROM scheduled_streams WHERE run_id = $1`, [runId, id]);
+    await c.query(`INSERT INTO scheduled_streams(run_id, date, start_min, end_min, host_id, host_name, brand, period, sale, platform, room, fixed, auto_assigned_host, edited, status, confirmed_at)
+      SELECT $2, date, start_min, end_min, host_id, host_name, brand, period, sale, platform, room, fixed, auto_assigned_host, edited, status, confirmed_at FROM scheduled_streams WHERE run_id = $1`, [runId, id]);
     return id;
   });
   back(`/admin/runs/${newId}`, 'Copied. Edit this version freely; the original is unchanged.');
@@ -214,15 +214,46 @@ export async function updateStream(f: FormData) {
   let end = parseTimeInput(f.get('end'));
   if (end === 0) end = 1440;
   if (start == null || end == null || end <= start) back(`/admin/runs/${runId}?edit=${n(f, 'id')}`, 'End time must be after start time', 'bad');
-  await query(`UPDATE scheduled_streams SET host_id=$2, host_name=$3, room=$4, date=$5, start_min=$6, end_min=$7, edited=TRUE WHERE id=$1 AND run_id=$8`,
+  const done = await query(`UPDATE scheduled_streams SET host_id=$2, host_name=$3, room=$4, date=$5, start_min=$6, end_min=$7, edited=TRUE
+    WHERE id=$1 AND run_id=$8 AND status = 'tentative' RETURNING id`,
     [n(f, 'id'), hostId, host?.name ?? '', s(f, 'room'), s(f, 'date'), start, end, runId]);
+  if (!done.length) back(`/admin/runs/${runId}#s${n(f, 'id')}`, 'This stream is confirmed. Set it back to Tentative before editing.', 'bad');
   back(`/admin/runs/${runId}#s${n(f, 'id')}`, 'Stream updated');
 }
 
 export async function deleteStream(f: FormData) {
   await requireAdmin();
-  await query('DELETE FROM scheduled_streams WHERE id = $1 AND run_id = $2', [n(f, 'id'), n(f, 'runId')]);
+  const done = await query(`DELETE FROM scheduled_streams WHERE id = $1 AND run_id = $2 AND status = 'tentative' RETURNING id`, [n(f, 'id'), n(f, 'runId')]);
+  if (!done.length) back(`/admin/runs/${n(f, 'runId')}`, 'This stream is confirmed. Set it back to Tentative before removing it.', 'bad');
   back(`/admin/runs/${n(f, 'runId')}`, 'Stream removed');
+}
+
+/** Where to go back to after a status change: the page the form came from (same run only). */
+function returnPath(f: FormData, runId: number | null) {
+  const r = s(f, 'returnTo');
+  return r.startsWith(`/admin/runs/${runId}`) ? r : `/admin/runs/${runId}`;
+}
+
+export async function setStreamStatus(f: FormData) {
+  await requireAdmin();
+  const runId = n(f, 'runId'), status = s(f, 'status');
+  if (!['tentative', 'confirmed'].includes(status)) back(`/admin/runs/${runId}`, 'Unknown status', 'bad');
+  const row = await one('SELECT host_name FROM scheduled_streams WHERE id = $1 AND run_id = $2', [n(f, 'id'), runId]);
+  if (status === 'confirmed' && !row?.host_name) back(returnPath(f, runId), 'Assign a host before confirming this stream.', 'bad');
+  await query(`UPDATE scheduled_streams SET status = $3, confirmed_at = CASE WHEN $3 = 'confirmed' THEN now() ELSE NULL END WHERE id = $1 AND run_id = $2`,
+    [n(f, 'id'), runId, status]);
+  back(returnPath(f, runId) + `#s${n(f, 'id')}`, status === 'confirmed' ? 'Confirmed. It is locked and shows as confirmed to the host.' : 'Set back to tentative. You can edit it again.');
+}
+
+/** Confirms (or un-confirms) every stream id posted, e.g. all streams currently shown in the list. Streams without a host are skipped. */
+export async function setManyStatus(f: FormData) {
+  await requireAdmin();
+  const runId = n(f, 'runId'), status = s(f, 'status');
+  const ids = s(f, 'ids').split(',').map(Number).filter(Boolean);
+  if (!ids.length || !['tentative', 'confirmed'].includes(status)) back(returnPath(f, runId), 'Nothing to change', 'bad');
+  const rows = await query(`UPDATE scheduled_streams SET status = $3, confirmed_at = CASE WHEN $3 = 'confirmed' THEN now() ELSE NULL END
+    WHERE run_id = $1 AND id = ANY($2) AND status <> $3 AND ($3 = 'tentative' OR host_name <> '') RETURNING id`, [runId, ids, status]);
+  back(returnPath(f, runId), `${rows.length} stream${rows.length === 1 ? '' : 's'} ${status === 'confirmed' ? 'confirmed' : 'set back to tentative'}.`);
 }
 
 export async function addStream(f: FormData) {
