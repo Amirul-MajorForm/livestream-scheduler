@@ -225,3 +225,22 @@ td .row-actions { flex-wrap: nowrap; gap: 10px; }
 .tour-head button { font-size: 20px; line-height: 1; color: var(--muted); }
 .tour-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .tour-card { white-space: normal; color: var(--ink); font-size: 14px; }
+
+/* Per-brand tiles */
+.brand-section { margin: -4px 0 16px; }
+.brand-section > summary { padding: 4px 0 10px; }
+.brand-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.brand-tile { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; color: var(--ink); }
+.brand-tile:hover { text-decoration: none; border-color: var(--accent); }
+.brand-tile.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.brand-tile.short { border-left: 3px solid var(--bad); }
+.brand-tile.done { border-left: 3px solid var(--ok); }
+.bt-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.bt-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-n { font-size: 20px; font-weight: 700; margin-top: 4px; }
+.bt-n .muted { font-size: 14px; font-weight: 500; }
+.bar { height: 5px; background: var(--bg); border-radius: 99px; overflow: hidden; margin: 6px 0 6px; }
+.bar span { display: block; height: 100%; background: var(--ok); border-radius: 99px; }
+.brand-tile.short .bar span { background: #e0a100; }
+.bt-line { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.bt-line em { color: var(--bad); font-style: normal; font-weight: 600; }

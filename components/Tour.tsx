@@ -70,6 +70,8 @@ const ADMIN_STEPS: Step[] = [
     body: 'Every run is kept as a version, so you can try changes and compare. Next opens the newest one (run the scheduler first if this list is empty).' },
   { on: runView('list'), go: toRun('list'), target: 'run-stats', title: 'The result at a glance',
     body: 'Sessions and hours fulfilled, what’s left unfulfilled, streams with no host, and streams with warnings. Hover a tile for details; click it to filter the list.' },
+  { on: runView('list'), go: toRun('list'), target: 'brand-tiles', title: 'Each brand at a glance',
+    body: 'One tile per brand: hours fulfilled out of committed, split into BAU and Mega, and how many hours are still short. Brands furthest behind come first. Click a tile to see only that brand\u2019s streams; hover it for the per-platform detail.' },
   { on: runView('list'), go: toRun('list'), target: 'run-views', title: 'List or calendar',
     body: 'List is best for checking and editing (click a column heading to sort, e.g. by host). Calendar shows the month at a glance. Summary explains every unfulfilled commitment.' },
   { on: runView('list'), go: toRun('list'), target: 'run-table', title: 'Tags and fixes',

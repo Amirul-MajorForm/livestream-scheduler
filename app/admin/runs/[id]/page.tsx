@@ -10,9 +10,10 @@ import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import MonthCalendar, { type CalStream } from '@/components/MonthCalendar';
 import FlagLegend, { FLAG_HELP } from '@/components/FlagLegend';
 import { findIssues } from '@/lib/issues';
+import { brandStats, SESSION_HOURS } from '@/lib/brandStats';
 import { publishRun, unpublishMonth, deleteRun, renameRun, duplicateRun, updateStream, deleteStream, addStream } from '../../actions';
 
-type SP = { view?: string; host?: string; show?: string; edit?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
+type SP = { view?: string; host?: string; brand?: string; show?: string; edit?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
 const PLATFORMS = ['TikTok', 'Shopee', 'TikTok & Shopee'];
 const VIEWS = [['list', 'List'], ['calendar', 'Calendar'], ['grid', 'Room calendar'], ['summary', 'Summary & diagnostics']] as const;
 
@@ -48,11 +49,10 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString('en-SG');
   const scheduledHours = streams.reduce((a, x) => a + (x.end_min - x.start_min) / 60, 0);
   const shownHours = (list: any[]) => list.reduce((a, x) => a + (x.end_min - x.start_min) / 60, 0);
-  const byPeriod = Object.fromEntries(((run.sections as SummarySection[])[0]?.rows || []).map(r => [String(r[0]), r]));
-  const periodLine = (k: string) => byPeriod[k] ? `${k === 'BAU' ? 'BAU' : 'Mega'} ${byPeriod[k][2]}/${byPeriod[k][1]}` : '';
 
   let shown = streams;
   if (hostFilter) shown = shown.filter(s => s.host_id === hostFilter);
+  if (sp.brand) shown = shown.filter(s => s.brand.toLowerCase() === sp.brand!.toLowerCase());
   if (show === 'flagged') shown = shown.filter(s => conflicts.has(s.id));
   if (show === 'nohost') shown = shown.filter(s => !s.host_name);
   if (show === 'edited') shown = shown.filter(s => s.edited);
@@ -65,12 +65,22 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   const base = `/admin/runs/${run.id}`;
   const qs = (over: Record<string, string | undefined>) => {
     const q = new URLSearchParams();
-    const merged = { view, host: sp.host, show: sp.show, sort: sp.sort, dir: sp.dir, ...over };
+    const merged = { view, host: sp.host, brand: sp.brand, show: sp.show, sort: sp.sort, dir: sp.dir, ...over };
     Object.entries(merged).forEach(([k, v]) => { if (v && !(k === 'view' && v === 'list')) q.set(k, v); });
     const s = q.toString();
     return s ? base + '?' + s : base;
   };
-  const sortParams = { view: view === 'list' ? undefined : view, host: sp.host, show: sp.show };
+  // Live per-brand and overall hours (recounted from the streams, so edits are reflected).
+  const brands_ = brandStats(run.sections as SummarySection[], streams as any);
+  const H = (sessions: number) => sessions * SESSION_HOURS;
+  const tot = brands_.reduce((a, b) => ({
+    bauC: a.bauC + b.bau.committed, bauF: a.bauF + b.bau.fulfilled, megaC: a.megaC + b.mega.committed, megaF: a.megaF + b.mega.fulfilled,
+  }), { bauC: 0, bauF: 0, megaC: 0, megaF: 0 });
+  const totC = tot.bauC + tot.megaC, totF = tot.bauF + tot.megaF, totShort = totC - totF;
+  const pctOf = (f: number, c: number) => c ? Math.round((f / c) * 100) : 100;
+  const saleName = new Map(sales.map(x => [String(x.name).toLowerCase(), String(x.name)]));
+  const listView = view === 'summary' || view === 'grid' ? 'list' : view;
+  const sortParams = { view: view === 'list' ? undefined : view, host: sp.host, brand: sp.brand, show: sp.show };
   const noHost = streams.filter(s => !s.host_name).length;
 
   return (
@@ -109,30 +119,75 @@ export default async function RunPage({ params, searchParams }: { params: Promis
       {published && <div className="notice info">This version is live: edits here are visible to hosts straight away. Use Duplicate to work on a draft copy.</div>}
 
       <div className="stats" data-tour="run-stats">
-        <div className="stat" data-tip={'Commitments fulfilled:\nSessions from the Commitments tab that this version covers. Each session is a 2-hour stream.\n' + [periodLine('BAU'), periodLine('MEGA')].filter(Boolean).join(' \u00b7 ')}>
-          <div className="n">{run.stats.fulfilled} / {run.stats.committed}</div>
-          <div className="l">Sessions fulfilled &middot; <strong>{hrs(run.stats.fulfilled * 2)} / {hrs(run.stats.committed * 2)} h</strong></div>
-          <div className="l">{[periodLine('BAU'), periodLine('MEGA')].filter(Boolean).join(' \u00b7 ')}</div>
+        <div className="stat" data-tip={'Committed hours:\nAll sessions on the Commitments tab for this month, at 2 hours each.'}>
+          <div className="n">{hrs(H(totC))} h</div>
+          <div className="l">Committed &middot; {totC} sessions</div>
+          <div className="l">BAU <strong>{hrs(H(tot.bauC))} h</strong> &middot; Mega <strong>{hrs(H(tot.megaC))} h</strong></div>
         </div>
-        <Link className="stat" href={`${base}?view=summary`} data-tip={'Unfulfilled:\nCommitted sessions the scheduler could not place. Click to see the reason for each one.'}>
-          <div className="n" style={{ color: run.stats.unfulfilled ? 'var(--bad)' : undefined }}>{run.stats.unfulfilled}</div>
-          <div className="l">Sessions unfulfilled &middot; <strong>{hrs(run.stats.unfulfilled * 2)} h</strong></div>
-          <div className="l">Click to see why</div>
+        <div className="stat" data-tip={'Fulfilled hours:\nCommitted sessions covered by a stream with a host in this version. Updates when you edit streams.'}>
+          <div className="n" style={{ color: 'var(--ok)' }}>{hrs(H(totF))} h</div>
+          <div className="l">Fulfilled &middot; {pctOf(totF, totC)}% &middot; {totF} sessions</div>
+          <div className="l">BAU <strong>{hrs(H(tot.bauF))}/{hrs(H(tot.bauC))} h</strong> &middot; Mega <strong>{hrs(H(tot.megaF))}/{hrs(H(tot.megaC))} h</strong></div>
+        </div>
+        <Link className="stat" href={`${base}?view=summary`} data-tip={'Not fulfilled:\nCommitted hours with no stream yet. Click for the scheduler\u2019s reason for each one.'}>
+          <div className="n" style={{ color: totShort ? 'var(--bad)' : undefined }}>{hrs(H(totShort))} h</div>
+          <div className="l">Not fulfilled &middot; {totShort} sessions &middot; see why</div>
+          <div className="l">BAU <strong>{hrs(H(tot.bauC - tot.bauF))} h</strong> &middot; Mega <strong>{hrs(H(tot.megaC - tot.megaF))} h</strong></div>
         </Link>
-        <Link className="stat" href={qs({ show: undefined })} data-tip={'Streams in this version:\nEverything on the schedule, including pre-planned bookings beyond commitments and manual additions. Hours use each stream\u2019s actual length.'}>
-          <div className="n">{streams.length}</div>
-          <div className="l">Streams scheduled &middot; <strong>{hrs(scheduledHours)} h</strong></div>
-          {(hostFilter || show) && <div className="l">Showing {shown.length} &middot; {hrs(shownHours(shown))} h</div>}
+        <Link className="stat" href={qs({ show: undefined, brand: undefined })} data-tip={'Streams in this version:\nEverything on the schedule, including pre-planned bookings beyond commitments and manual additions. Hours use each stream\u2019s actual length.'}>
+          <div className="n">{hrs(scheduledHours)} h</div>
+          <div className="l">Scheduled &middot; {streams.length} streams</div>
+          {(hostFilter || show || sp.brand) && <div className="l">Showing {shown.length} &middot; {hrs(shownHours(shown))} h</div>}
         </Link>
-        <Link className="stat" href={qs({ show: 'nohost', view: view === 'summary' || view === 'grid' ? 'list' : view })} data-tip={'Streams without a host:\n' + FLAG_HELP['No host'] + '\nClick to list them, then hover the red tag for the reason.'}>
+        <Link className="stat" href={qs({ show: 'nohost', view: listView })} data-tip={'Streams without a host:\n' + FLAG_HELP['No host'] + '\nClick to list them, then hover the red tag for the reason.'}>
           <div className="n" style={{ color: noHost ? 'var(--bad)' : undefined }}>{noHost}</div>
           <div className="l">Without a host &middot; <strong>{hrs(shownHours(streams.filter(x => !x.host_name)))} h</strong></div>
         </Link>
-        <Link className="stat" href={qs({ show: 'flagged', view: view === 'summary' || view === 'grid' ? 'list' : view })} data-tip={'Streams with warnings:\nStreams with an amber or red tag. Hover any tag to see exactly what is wrong. Warnings never block publishing.'}>
+        <Link className="stat" href={qs({ show: 'flagged', view: listView })} data-tip={'Streams with warnings:\nStreams with an amber or red tag. Hover any tag to see exactly what is wrong. Warnings never block publishing.'}>
           <div className="n" style={{ color: conflicts.size ? 'var(--warn)' : undefined }}>{conflicts.size}</div>
           <div className="l">With warnings &middot; click to list</div>
         </Link>
       </div>
+
+      <details className="brand-section" open data-tour="brand-tiles">
+        <summary>
+          <strong>By brand</strong>{' '}
+          <span className="small muted">
+            {brands_.filter(b => b.committed > b.fulfilled).length} of {brands_.filter(b => b.committed).length} brands short &middot; sorted by most hours short &middot; click a brand to see its streams
+          </span>
+        </summary>
+        <div className="brand-grid">
+          {brands_.map(b => {
+            const short = b.committed - b.fulfilled;
+            const tip = b.brand + ':\n' + b.lines.map(l =>
+              `${l.period === 'mega' ? 'Mega' : 'BAU'} ${l.platform}${l.period === 'mega' ? ' (' + l.sale.split(',').map(x => saleName.get(x.trim()) || x.trim()).join(', ') + ')' : ''}: ${H(l.fulfilled)}/${H(l.committed)} h`).join('\n') +
+              (b.extraStreams ? `\nPlus ${b.extraStreams} stream${b.extraStreams === 1 ? '' : 's'} (${hrs(b.extraHours)} h) beyond the commitments.` : '');
+            const active = sp.brand?.toLowerCase() === b.brand.toLowerCase();
+            return (
+              <Link key={b.brand} href={active ? qs({ brand: undefined }) : qs({ brand: b.brand, view: listView })}
+                className={'brand-tile' + (active ? ' on' : '') + (short ? ' short' : b.committed ? ' done' : '')} data-tip={tip}>
+                <div className="bt-head">
+                  <strong>{b.brand}</strong>
+                  {b.committed > 0 && (short ? <span className="badge bad">{hrs(H(short))} h short</span> : <span className="badge ok">Done</span>)}
+                </div>
+                {b.committed > 0 ? (
+                  <>
+                    <div className="bt-n">{hrs(H(b.fulfilled))} <span className="muted">/ {hrs(H(b.committed))} h</span></div>
+                    <div className="bar"><span style={{ width: pctOf(b.fulfilled, b.committed) + '%' }} /></div>
+                    {(['bau', 'mega'] as const).filter(k => b[k].committed > 0).map(k => (
+                      <div key={k} className="bt-line">
+                        <span>{k === 'bau' ? 'BAU' : 'Mega'}</span>
+                        <span>{hrs(H(b[k].fulfilled))}/{hrs(H(b[k].committed))} h{b[k].committed > b[k].fulfilled && <em> &middot; {hrs(H(b[k].committed - b[k].fulfilled))} h short</em>}</span>
+                      </div>
+                    ))}
+                  </>
+                ) : <div className="bt-line"><span className="muted">No commitment this month</span></div>}
+                {b.extraStreams > 0 && <div className="bt-line muted"><span>Extra</span><span>{b.extraStreams} stream{b.extraStreams === 1 ? '' : 's'} &middot; {hrs(b.extraHours)} h</span></div>}
+              </Link>
+            );
+          })}
+        </div>
+      </details>
 
       <div className="tabs" data-tour="run-views">
         {VIEWS.map(([k, label]) => <Link key={k} href={qs({ view: k, edit: undefined })} className={view === k ? 'on' : ''}>{label}</Link>)}
@@ -147,6 +202,10 @@ export default async function RunPage({ params, searchParams }: { params: Promis
             <option value="">All hosts</option>
             {hosts.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
+          <select name="brand" defaultValue={sp.brand ?? ''} aria-label="Filter by brand">
+            <option value="">All brands</option>
+            {brands.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
+          </select>
           <select name="show" defaultValue={show} aria-label="Show">
             <option value="">All streams</option>
             <option value="flagged">Only streams with warnings</option>
@@ -154,7 +213,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
             <option value="edited">Only edited streams</option>
           </select>
           <button type="submit">Apply</button>
-          {(hostFilter || show) && <Link href={qs({ host: undefined, show: undefined })}>Clear</Link>}
+          {(hostFilter || show || sp.brand) && <Link href={qs({ host: undefined, show: undefined, brand: undefined })}>Clear</Link>}
           <span className="muted small">{shown.length} of {streams.length} streams</span>
         </form>
       )}
