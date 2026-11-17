@@ -62,6 +62,8 @@ const ADMIN_STEPS: Step[] = [
     body: 'Bookings already agreed with a brand. They go in first, exactly as entered. Leave the host on Auto-assign to let the app choose someone suitable.' },
   { on: monthTab('availability'), go: toMonthTab('availability'), target: 'avail-matrix', title: 'Who has given availability',
     body: 'One row per host, one column per day; the number is how many 2-hour slots they ticked. “Not yet” means chase them. Click a name to fill it in for them.' },
+  { on: monthTab('availability'), go: toMonthTab('availability'), target: 'paste-pick', title: 'Availability by WhatsApp',
+    body: 'If a host sends their times by message instead, pick them here and paste the message. The app fills in their slots as a preview (outlined in blue) for you to check, then you press Save.' },
   { on: monthTab('availability'), go: toMonthTab('availability'), target: 'avail-lock', title: 'Lock availability',
     body: 'When everyone has replied, lock it so hosts can’t change it while you schedule. You can re-open it later.' },
   { on: monthTab('schedule'), go: toMonthTab('schedule'), target: 'run-scheduler', title: 'Make the schedule',

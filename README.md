@@ -34,6 +34,7 @@ The scheduling engine (`lib/scheduler.ts`) is a direct port of the Apps Script *
    | `ADMIN_EMAIL` | email for the first ops login |
    | `ADMIN_PASSWORD` | password for the first ops login (change it after signing in) |
    | `APP_TIMEZONE` | optional, defaults to `Asia/Singapore` |
+   | `ANTHROPIC_API_KEY` | optional: enables "Paste a host's message" (reads WhatsApp-style availability messages with Claude). Get a key at console.anthropic.com |
 5. **Settings → Networking → Generate Domain.**
 6. Deploy. On start, the app applies database migrations and creates the first admin.
 

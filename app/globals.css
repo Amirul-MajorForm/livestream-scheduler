@@ -244,3 +244,26 @@ td .row-actions { flex-wrap: nowrap; gap: 10px; }
 .brand-tile.short .bar span { background: #e0a100; }
 .bt-line { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .bt-line em { color: var(--bad); font-style: normal; font-weight: 600; }
+.slot-label { display: inline-block; font-size: 11px; line-height: 1.15; font-weight: 600; white-space: nowrap; }
+.slot-label span { display: block; font-weight: 400; color: var(--muted); }
+.matrix td[data-tip] { cursor: default; }
+.slot-label .dash { font-style: normal; }
+@media (max-width: 720px) {
+  .slot-label { font-size: 10px; }
+  .slot-label .dash { display: none; }
+  .avail td:last-child .link.small { font-size: 11px; white-space: nowrap; }
+}
+@media (max-width: 720px) {
+  .avail td.date .badge { white-space: normal; max-width: 72px; font-size: 9.5px; line-height: 1.15; }
+}
+
+/* Paste-a-message box */
+.paste-box { background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.paste-box textarea { width: 100%; margin-top: 6px; font-size: 14px; resize: vertical; }
+.slotbtn.added { outline: 3px solid var(--accent); outline-offset: -1px; }
+.slotbtn.removed { outline: 3px dashed var(--accent); outline-offset: -1px; background: #eef2ff; }
+.matrix th.daycol { text-align: center; line-height: 1.15; padding-top: 4px; }
+.matrix th.daycol .dow { display: block; font-size: 10px; font-weight: 600; color: #a3a29b; }
+.matrix th.daycol.wkend, .matrix th.daycol.wkend .dow { color: var(--accent); }
+.matrix td.wkend { background: #f4f6fd; }
+.paste-pick { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--accent-soft); border-color: transparent; }

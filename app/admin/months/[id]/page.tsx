@@ -23,7 +23,7 @@ const TABS = [
 ] as const;
 const PLATFORMS = ['TikTok', 'Shopee', 'TikTok & Shopee'];
 
-type SP = { tab?: string; host?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
+type SP = { tab?: string; host?: string; paste?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
 
 export default async function MonthPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
   const { id } = await params;
@@ -321,17 +321,19 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
         <AvailabilityGrid hostId={hostId} monthId={m.id} year={m.year} month={m.month}
           initial={slots.map(s => s.date + '|' + s.slot)}
           saleDays={Object.fromEntries(sales.map(s => [s.day, s.name]))}
-          editable submittedAt={sub ? new Date(sub.submitted_at).toISOString() : null} />
+          editable submittedAt={sub ? new Date(sub.submitted_at).toISOString() : null}
+          pasteFor={host.name} focusPaste={sp.paste === '1'} />
       </>
     );
   }
   const [hostRows, counts, subs, users] = await Promise.all([
     query('SELECT id, name FROM hosts WHERE active ORDER BY name'),
-    query(`SELECT host_id, date, count(*)::int AS n FROM availability WHERE date BETWEEN $1 AND $2 GROUP BY host_id, date`, [start, end]),
+    query(`SELECT host_id, date, count(*)::int AS n, array_agg(slot ORDER BY slot) AS slots FROM availability WHERE date BETWEEN $1 AND $2 GROUP BY host_id, date`, [start, end]),
     query('SELECT host_id, submitted_at FROM availability_submissions WHERE month_id = $1', [m.id]),
     query("SELECT host_id FROM users WHERE role = 'host'"),
   ]);
   const cnt = new Map(counts.map(c => [c.host_id + '|' + c.date, c.n]));
+  const slotsOf = new Map<string, number[]>(counts.map(c => [c.host_id + '|' + c.date, c.slots]));
   const sub = new Map(subs.map(s => [s.host_id, s.submitted_at]));
   const hasLogin = new Set(users.map(u => u.host_id));
   const dayList = Array.from({ length: days }, (_, i) => isoDate(m.year, m.month, i + 1));
@@ -349,22 +351,50 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
         <div>
           <strong>{hosts.filter(h => sub.has(h.id) || dayList.some(d => cnt.has(h.id + '|' + d))).length} of {hosts.length}</strong> active hosts have availability for this month
           {' '}({hosts.filter(h => sub.has(h.id)).length} submitted it themselves).{' '}
-          <span className="muted small">{m.availability_open ? 'Hosts can still change their availability.' : 'Hosts cannot change availability; ops can still edit it here.'}</span>
+          <div className="muted small" style={{ marginTop: 4 }}>
+            {m.availability_open
+              ? <><strong>Open:</strong> hosts can still add or change their availability for this month. When everyone has replied, click <em>Lock availability</em> so nothing changes while you build the schedule.</>
+              : <><strong>Locked:</strong> hosts can see their availability but can&rsquo;t change it. Ops can still edit anyone&rsquo;s here. Re-open if a host needs to make changes.</>}
+          </div>
         </div>
         <form action={setAvailabilityOpen} data-tour="avail-lock">
           <input type="hidden" name="monthId" value={m.id} />
           <input type="hidden" name="open" value={m.availability_open ? 'false' : 'true'} />
-          <button type="submit">{m.availability_open ? 'Lock availability' : 'Re-open for hosts'}</button>
+          <button type="submit" data-tip={m.availability_open
+            ? 'Lock availability:\nStops hosts changing their availability for this month, so it can\u2019t shift while you schedule. Nothing is deleted, and you can re-open any time.'
+            : 'Re-open:\nLets hosts change their availability for this month again.'}>{m.availability_open ? 'Lock availability' : 'Re-open for hosts'}</button>
         </form>
       </div>
+      <form className="card paste-pick" data-tour="paste-pick" action={`/admin/months/${m.id}`}>
+        <input type="hidden" name="tab" value="availability" />
+        <input type="hidden" name="paste" value="1" />
+        <div>
+          <strong>Got availability by WhatsApp?</strong>{' '}
+          <span className="small muted">Pick the host, paste their message, and the app fills in their slots for you to check and save.</span>
+        </div>
+        <div className="inline">
+          <select name="host" required defaultValue="" aria-label="Host">
+            <option value="" disabled>Choose host</option>
+            {[...hostRows].sort((a, b) => a.name.localeCompare(b.name)).map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+          <button type="submit" className="primary">Paste message</button>
+        </div>
+      </form>
       <div className="table-wrap">
         <table className="matrix" data-tour="avail-matrix">
           <thead>
             <tr>
               <SortHeader label="Host" k="host" sort={sort} dir={dir} params={sortParams} />
               <SortHeader label="Status" k="status" sort={sort} dir={dir} params={sortParams} />
-              <SortHeader label="Slots" k="slots" sort={sort} dir={dir} params={sortParams} className="num" />
-              {dayList.map(d => <th key={d} title={fmtDate(d)} style={{ textAlign: 'center' }}>{Number(d.slice(8))}</th>)}
+              <SortHeader label="Slots (month)" k="slots" sort={sort} dir={dir} params={sortParams} className="num" />
+              {dayList.map(d => {
+                const dow = new Date(d + 'T00:00:00Z').getUTCDay();
+                return (
+                  <th key={d} title={fmtDate(d)} className={'daycol' + (dow === 0 || dow === 6 ? ' wkend' : '')}>
+                    <span className="dow">{'SMTWTFS'[dow]}</span>{Number(d.slice(8))}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -379,10 +409,12 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
                         : <span className="badge warn">Not yet</span>}
                     {!hasLogin.has(h.id) && <span className="badge" title="No login: ops must enter availability"> No login</span>}
                   </td>
-                  <td className="num">{total}</td>
+                  <td className="num" data-tip={`${h.name}:\n${total} slots this month = ${total * 2} hours available`}>{total}</td>
                   {dayList.map(d => {
                     const v = cnt.get(h.id + '|' + d) || 0;
-                    return <td key={d} className={v === 0 ? 'heat0' : v <= 2 ? 'heat1' : v <= 4 ? 'heat2' : 'heat3'}>{v || '·'}</td>;
+                    const tip = h.name + ', ' + fmtDate(d) + ':\n' + (v ? (slotsOf.get(h.id + '|' + d) || []).map(i => SLOTS[i]).join('\n') + `\n(${v} of 7 slots, ${v * 2} h)` : 'Not available');
+                    const wk = [0, 6].includes(new Date(d + 'T00:00:00Z').getUTCDay());
+                    return <td key={d} data-tip={tip} className={(v === 0 ? 'heat0' : v <= 2 ? 'heat1' : v <= 4 ? 'heat2' : 'heat3') + (wk && v === 0 ? ' wkend' : '')}>{v || '·'}</td>;
                   })}
                 </tr>
               );
@@ -390,7 +422,10 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
           </tbody>
         </table>
       </div>
-      <p className="small muted">Numbers are available 2-hour slots per day (out of 7). Click a host to view or edit their availability.</p>
+      <p className="small muted">
+        Each number is how many of the day\u2019s seven 2-hour slots (10AM\u201312MN) the host ticked: 7 = free all day, \u00b7 = not available.
+        <strong> Hover a number</strong> to see exactly which times. <em>Slots (month)</em> is the month total (\u00d7 2 for hours). Click a name to view or edit the full grid.
+      </p>
       <h3>Coverage by time slot</h3>
       <div className="stats">
         {SLOTS.map((s, i) => {
