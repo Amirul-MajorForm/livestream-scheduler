@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { formatTime } from '@/lib/format';
+import { formatTime, fmtRange } from '@/lib/format';
+import type { Issue } from '@/lib/issues';
 
 export interface CalStream {
   id: number;
@@ -9,6 +10,7 @@ export interface CalStream {
   host_name: string;
   brand: string;
   period: string;
+  sale?: string;
   platform: string;
   room: string;
 }
@@ -16,14 +18,17 @@ export interface CalStream {
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const PLATFORM_SHORT: Record<string, string> = { 'TikTok': 'TT', 'Shopee': 'SP', 'TikTok & Shopee': 'TT+SP' };
 
-/** Month view (Monday first). Each stream shows time, brand, platform and host; flagged streams get an amber edge. */
-export default function MonthCalendar({ year, month, streams, saleDays, showHost = true, flagged, hrefFor }: {
+/**
+ * Month view (Monday first). Each stream shows time, brand, platform and host.
+ * Hovering a stream shows its full details and any warnings (via the global TooltipLayer).
+ */
+export default function MonthCalendar({ year, month, streams, saleDays, showHost = true, issues, hrefFor }: {
   year: number;
   month: number; // 0-based
   streams: CalStream[];
   saleDays: Record<number, string>;
   showHost?: boolean;
-  flagged?: Set<number>;
+  issues?: Map<number, Issue[]>;
   hrefFor?: (id: number) => string;
 }) {
   const days = new Date(year, month + 1, 0).getDate();
@@ -50,19 +55,26 @@ export default function MonthCalendar({ year, month, streams, saleDays, showHost
                   {saleDays[d] && <span className="cal-sale">{saleDays[d]}</span>}
                 </div>
                 {(byDay.get(d) || []).map(s => {
+                  const list = issues?.get(s.id) || [];
+                  const cls = 'cal-item' + (s.period === 'MEGA' ? ' mega' : '') +
+                    (list.length ? (list.some(x => x.severity === 'bad') ? ' bad' : ' flag') : '');
+                  const tip = [
+                    fmtRange(s.start_min, s.end_min) + ' ' + s.brand + ':',
+                    [s.platform, s.host_name || 'No host', s.room || 'No room', s.period + (s.period === 'MEGA' && s.sale ? ' ' + s.sale : '')].join(' · '),
+                    ...list.map(x => '\n' + x.tag + ': ' + x.detail),
+                  ].join('\n');
                   const body = (
                     <>
                       <span className="t">{formatTime(s.start_min)}</span> <strong>{s.brand}</strong>{' '}
                       <span className="muted">{PLATFORM_SHORT[s.platform] || s.platform}</span>
                       {showHost && <div className={s.host_name ? 'h' : 'h nohost'}>{s.host_name || 'No host'}</div>}
                       {!showHost && s.room && <div className="h">{s.room}</div>}
+                      {list.length > 0 && <div className="warns">{list.map(x => x.tag).join(' · ')}</div>}
                     </>
                   );
-                  const cls = 'cal-item' + (s.period === 'MEGA' ? ' mega' : '') + (flagged?.has(s.id) ? ' flag' : '');
-                  const title = `${formatTime(s.start_min)}–${formatTime(s.end_min)} ${s.brand} on ${s.platform}${s.host_name ? ', ' + s.host_name : ''}${s.room ? ', ' + s.room : ''}`;
                   return hrefFor
-                    ? <Link key={s.id} href={hrefFor(s.id)} className={cls} title={title}>{body}</Link>
-                    : <div key={s.id} className={cls} title={title}>{body}</div>;
+                    ? <Link key={s.id} href={hrefFor(s.id)} className={cls} data-tip={tip}>{body}</Link>
+                    : <div key={s.id} className={cls} data-tip={tip} tabIndex={0}>{body}</div>;
                 })}
               </>
             )}

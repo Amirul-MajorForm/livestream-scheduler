@@ -44,7 +44,7 @@ export default async function MonthPage({ params, searchParams }: { params: Prom
           {m.published_run_id ? <Link className="badge accent" href={`/admin/runs/${m.published_run_id}`}>Published schedule</Link> : <span className="badge">Not published</span>}
         </div>
       </div>
-      <div className="tabs">
+      <div className="tabs" data-tour="month-tabs">
         {TABS.map(([k, label]) => <Link key={k} href={`/admin/months/${m.id}?tab=${k}`} className={tab === k ? 'on' : ''}>{label}</Link>)}
       </div>
       <Flash sp={sp} />
@@ -64,7 +64,7 @@ async function SetupTab({ m }: { m: MonthRow }) {
   const { days } = monthRange(m.year, m.month);
   return (
     <div className="grid2">
-      <div className="card">
+      <div className="card" data-tour="sale-days">
         <h2 style={{ marginTop: 0 }}>Mega sale days</h2>
         <p className="muted small">Any day listed here is a Mega day; every other day is BAU. Mega commitments name the sales they can be scheduled on.</p>
         <div className="table-wrap">
@@ -133,11 +133,12 @@ async function CommitmentsTab({ m }: { m: MonthRow }) {
   return (
     <>
       <div className="stats">
-        <div className="stat"><div className="n">{total('bau')}</div><div className="l">BAU sessions</div></div>
-        <div className="stat"><div className="n">{total('mega')}</div><div className="l">Mega sessions</div></div>
+        <div className="stat"><div className="n">{total('bau')}</div><div className="l">BAU sessions &middot; <strong>{total('bau') * 2} h</strong></div></div>
+        <div className="stat"><div className="n">{total('mega')}</div><div className="l">Mega sessions &middot; <strong>{total('mega') * 2} h</strong></div></div>
+        <div className="stat"><div className="n">{total('bau') + total('mega')}</div><div className="l">Total sessions &middot; <strong>{(total('bau') + total('mega')) * 2} h</strong> (2 h each)</div></div>
         <div className="stat"><div className="n">{rows.filter(r => r.qty > 0).length}</div><div className="l">Active commitments</div></div>
       </div>
-      <div className="table-wrap">
+      <div className="table-wrap" data-tour="commitments">
         <table>
           <thead><tr><th>Brand</th><th>Period</th><th>Sales</th><th>Platform</th><th>Sessions &middot; priority</th><th /></tr></thead>
           <tbody>
@@ -220,7 +221,7 @@ async function PreplannedTab({ m, sp }: { m: MonthRow; sp: SP }) {
         Confirmed bookings (e.g. The Ordinary, MOOM, Oatside). They are locked into the schedule first, even if they go over a host&rsquo;s caps.
         Leave the host blank to let the scheduler pick an eligible, available host.
       </p>
-      <div className="table-wrap">
+      <div className="table-wrap" data-tour="preplanned">
         <table className="compact">
           <thead>
             <tr>
@@ -350,14 +351,14 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
           {' '}({hosts.filter(h => sub.has(h.id)).length} submitted it themselves).{' '}
           <span className="muted small">{m.availability_open ? 'Hosts can still change their availability.' : 'Hosts cannot change availability; ops can still edit it here.'}</span>
         </div>
-        <form action={setAvailabilityOpen}>
+        <form action={setAvailabilityOpen} data-tour="avail-lock">
           <input type="hidden" name="monthId" value={m.id} />
           <input type="hidden" name="open" value={m.availability_open ? 'false' : 'true'} />
           <button type="submit">{m.availability_open ? 'Lock availability' : 'Re-open for hosts'}</button>
         </form>
       </div>
       <div className="table-wrap">
-        <table className="matrix">
+        <table className="matrix" data-tour="avail-matrix">
           <thead>
             <tr>
               <SortHeader label="Host" k="host" sort={sort} dir={dir} params={sortParams} />
@@ -414,7 +415,7 @@ async function ScheduleTab({ m }: { m: MonthRow }) {
   ]);
   return (
     <>
-      <div className="card">
+      <div className="card" data-tour="run-scheduler">
         <h2 style={{ marginTop: 0 }}>Generate a schedule</h2>
         <p className="muted small">
           Runs the scheduler on this month&rsquo;s commitments, pre-planned streams and current host availability. Each run is saved as a new version,
@@ -436,7 +437,7 @@ async function ScheduleTab({ m }: { m: MonthRow }) {
         </form>
       </div>
       <h2>Versions</h2>
-      <div className="table-wrap">
+      <div className="table-wrap" data-tour="versions">
         <table>
           <thead><tr><th>Version</th><th>Created</th><th>Result</th><th className="num">Streams</th><th /></tr></thead>
           <tbody>

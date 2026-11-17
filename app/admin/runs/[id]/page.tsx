@@ -9,6 +9,7 @@ import ConfirmButton from '@/components/ConfirmButton';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import MonthCalendar, { type CalStream } from '@/components/MonthCalendar';
 import FlagLegend, { FLAG_HELP } from '@/components/FlagLegend';
+import { findIssues } from '@/lib/issues';
 import { publishRun, unpublishMonth, deleteRun, renameRun, duplicateRun, updateStream, deleteStream, addStream } from '../../actions';
 
 type SP = { view?: string; host?: string; show?: string; edit?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
@@ -22,13 +23,14 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   if (!run) notFound();
   const m = (await one('SELECT * FROM months WHERE id = $1', [run.month_id]))!;
   const { start, end, days } = monthRange(m.year, m.month);
-  const [streams, hosts, rooms, brands, avail, sales] = await Promise.all([
+  const [streams, hosts, rooms, brands, avail, sales, prefs] = await Promise.all([
     query('SELECT * FROM scheduled_streams WHERE run_id = $1 ORDER BY date, start_min, room', [run.id]),
-    query('SELECT id, name, active FROM hosts ORDER BY active DESC, name'),
+    query('SELECT id, name, active, max_streams_month, platforms FROM hosts ORDER BY active DESC, name'),
     query('SELECT name FROM rooms ORDER BY sort_order, id'),
     query('SELECT name FROM brands ORDER BY sort_order, name'),
     query('SELECT host_id, date, slot FROM availability WHERE date BETWEEN $1 AND $2', [start, end]),
     query('SELECT name, day FROM sale_days WHERE month_id = $1', [m.id]),
+    query('SELECT p.host_id, lower(b.name) AS brand, p.level FROM host_brand_prefs p JOIN brands b ON b.id = p.brand_id'),
   ]);
   const published = m.published_run_id === run.id;
   const view = VIEWS.some(v => v[0] === sp.view) ? sp.view! : 'list';
@@ -36,23 +38,18 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   const show = ['flagged', 'nohost', 'edited'].includes(sp.show || '') ? sp.show! : '';
   const { sort, dir } = readSort(sp, ['date', 'host', 'brand', 'platform', 'room', 'period'], 'date');
 
-  // Conflict checks (useful after manual edits).
-  const availSet = new Set(avail.map(a => a.host_id + '|' + a.date + '|' + a.slot));
-  const conflicts = new Map<number, string[]>();
-  for (const s of streams) {
-    const list: string[] = [];
-    for (const o of streams) {
-      if (o.id === s.id || o.date !== s.date || !(o.start_min < s.end_min && s.start_min < o.end_min)) continue;
-      if (s.host_id && o.host_id === s.host_id) list.push('Host double-booked');
-      if (s.room && o.room === s.room) list.push('Room clash');
-      if (o.brand.toLowerCase() === s.brand.toLowerCase()) list.push('Same brand at the same time');
-    }
-    if (s.host_id) {
-      const covered = START_MINS.map((m0, i) => ({ i, m0 })).filter(x => x.m0 < s.end_min && s.start_min < x.m0 + 120);
-      if (!covered.every(x => availSet.has(s.host_id + '|' + s.date + '|' + x.i))) list.push('Host not marked available');
-    }
-    if (list.length || !s.host_name || !s.room) conflicts.set(s.id, [...new Set(list)]);
-  }
+  // Warnings with explanations (re-checked on every page load, so they reflect manual edits).
+  const prefsByHost = new Map<number, Record<string, string>>();
+  prefs.forEach(p => prefsByHost.set(p.host_id, { ...(prefsByHost.get(p.host_id) || {}), [p.brand]: p.level }));
+  const issues = findIssues(streams as any, avail as any, hosts.map(h => ({ ...h, prefs: prefsByHost.get(h.id) || {} })) as any);
+  const conflicts = issues;
+
+  // Hours (sessions are 2-hour slots; scheduled hours use each stream's real length).
+  const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString('en-SG');
+  const scheduledHours = streams.reduce((a, x) => a + (x.end_min - x.start_min) / 60, 0);
+  const shownHours = (list: any[]) => list.reduce((a, x) => a + (x.end_min - x.start_min) / 60, 0);
+  const byPeriod = Object.fromEntries(((run.sections as SummarySection[])[0]?.rows || []).map(r => [String(r[0]), r]));
+  const periodLine = (k: string) => byPeriod[k] ? `${k === 'BAU' ? 'BAU' : 'Mega'} ${byPeriod[k][2]}/${byPeriod[k][1]}` : '';
 
   let shown = streams;
   if (hostFilter) shown = shown.filter(s => s.host_id === hostFilter);
@@ -88,12 +85,12 @@ export default async function RunPage({ params, searchParams }: { params: Promis
         </div>
         <div className="row-actions">
           {published ? (
-            <form action={unpublishMonth}>
+            <form action={unpublishMonth} data-tour="run-publish">
               <input type="hidden" name="monthId" value={m.id} /><input type="hidden" name="returnTo" value={base} />
               <ConfirmButton message="Hide this schedule from hosts?">Unpublish</ConfirmButton>
             </form>
           ) : (
-            <form action={publishRun}>
+            <form action={publishRun} data-tour="run-publish">
               <input type="hidden" name="runId" value={run.id} />
               <ConfirmButton className="primary" message={m.published_run_id ? 'Replace the currently published version with this one?' : 'Publish this schedule to hosts?'}>
                 Publish to hosts
@@ -111,22 +108,33 @@ export default async function RunPage({ params, searchParams }: { params: Promis
       <Flash sp={sp} />
       {published && <div className="notice info">This version is live: edits here are visible to hosts straight away. Use Duplicate to work on a draft copy.</div>}
 
-      <div className="stats">
-        <div className="stat"><div className="n">{run.stats.fulfilled} / {run.stats.committed}</div><div className="l">Commitments fulfilled</div></div>
-        <Link className="stat" href={`${base}?view=summary`}>
+      <div className="stats" data-tour="run-stats">
+        <div className="stat" data-tip={'Commitments fulfilled:\nSessions from the Commitments tab that this version covers. Each session is a 2-hour stream.\n' + [periodLine('BAU'), periodLine('MEGA')].filter(Boolean).join(' \u00b7 ')}>
+          <div className="n">{run.stats.fulfilled} / {run.stats.committed}</div>
+          <div className="l">Sessions fulfilled &middot; <strong>{hrs(run.stats.fulfilled * 2)} / {hrs(run.stats.committed * 2)} h</strong></div>
+          <div className="l">{[periodLine('BAU'), periodLine('MEGA')].filter(Boolean).join(' \u00b7 ')}</div>
+        </div>
+        <Link className="stat" href={`${base}?view=summary`} data-tip={'Unfulfilled:\nCommitted sessions the scheduler could not place. Click to see the reason for each one.'}>
           <div className="n" style={{ color: run.stats.unfulfilled ? 'var(--bad)' : undefined }}>{run.stats.unfulfilled}</div>
-          <div className="l">Unfulfilled &middot; see why</div>
+          <div className="l">Sessions unfulfilled &middot; <strong>{hrs(run.stats.unfulfilled * 2)} h</strong></div>
+          <div className="l">Click to see why</div>
         </Link>
-        <Link className="stat" href={qs({ show: undefined })}><div className="n">{streams.length}</div><div className="l">Streams in this version</div></Link>
-        <Link className="stat" href={qs({ show: 'nohost', view: view === 'summary' || view === 'grid' ? 'list' : view })}>
-          <div className="n" style={{ color: noHost ? 'var(--bad)' : undefined }}>{noHost}</div><div className="l">Streams without a host</div>
+        <Link className="stat" href={qs({ show: undefined })} data-tip={'Streams in this version:\nEverything on the schedule, including pre-planned bookings beyond commitments and manual additions. Hours use each stream\u2019s actual length.'}>
+          <div className="n">{streams.length}</div>
+          <div className="l">Streams scheduled &middot; <strong>{hrs(scheduledHours)} h</strong></div>
+          {(hostFilter || show) && <div className="l">Showing {shown.length} &middot; {hrs(shownHours(shown))} h</div>}
         </Link>
-        <Link className="stat" href={qs({ show: 'flagged', view: view === 'summary' || view === 'grid' ? 'list' : view })}>
-          <div className="n" style={{ color: conflicts.size ? 'var(--warn)' : undefined }}>{conflicts.size}</div><div className="l">Streams with warnings</div>
+        <Link className="stat" href={qs({ show: 'nohost', view: view === 'summary' || view === 'grid' ? 'list' : view })} data-tip={'Streams without a host:\n' + FLAG_HELP['No host'] + '\nClick to list them, then hover the red tag for the reason.'}>
+          <div className="n" style={{ color: noHost ? 'var(--bad)' : undefined }}>{noHost}</div>
+          <div className="l">Without a host &middot; <strong>{hrs(shownHours(streams.filter(x => !x.host_name)))} h</strong></div>
+        </Link>
+        <Link className="stat" href={qs({ show: 'flagged', view: view === 'summary' || view === 'grid' ? 'list' : view })} data-tip={'Streams with warnings:\nStreams with an amber or red tag. Hover any tag to see exactly what is wrong. Warnings never block publishing.'}>
+          <div className="n" style={{ color: conflicts.size ? 'var(--warn)' : undefined }}>{conflicts.size}</div>
+          <div className="l">With warnings &middot; click to list</div>
         </Link>
       </div>
 
-      <div className="tabs">
+      <div className="tabs" data-tour="run-views">
         {VIEWS.map(([k, label]) => <Link key={k} href={qs({ view: k, edit: undefined })} className={view === k ? 'on' : ''}>{label}</Link>)}
       </div>
 
@@ -153,7 +161,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
 
       {view === 'list' && (
         <>
-          <div className="table-wrap">
+          <div className="table-wrap" data-tour="run-table">
             <table className="compact">
               <thead>
                 <tr>
@@ -198,19 +206,21 @@ export default async function RunPage({ params, searchParams }: { params: Promis
                   <tr key={s.id} id={'s' + s.id}>
                     <td className="nw">{fmtDate(s.date)}</td>
                     <td className="nw">{fmtRange(s.start_min, s.end_min)}</td>
-                    <td className="nw">{s.host_name || <span className="badge bad" title={FLAG_HELP['No host']}>No host</span>}</td>
+                    <td className="nw">{s.host_name || <span className="badge bad tip" tabIndex={0} data-tip={'No host:\n' + (issues.get(s.id)?.find(i => i.tag === 'No host')?.detail || FLAG_HELP['No host'])}>No host</span>}</td>
                     <td className="nw"><strong>{s.brand}</strong></td>
                     <td className="nw">
                       <span className={'badge ' + (s.period === 'MEGA' ? 'mega' : '')}>{s.period}</span>
                       {s.period === 'MEGA' && <span className="small muted"> {s.sale}</span>}
                     </td>
                     <td className="nw">{s.platform}</td>
-                    <td className="nw">{s.room || <span className="badge bad" title={FLAG_HELP['No room']}>No room</span>}</td>
+                    <td className="nw">{s.room || <span className="badge bad tip" tabIndex={0} data-tip={'No room:\n' + FLAG_HELP['No room']}>No room</span>}</td>
                     <td className="tags">
-                      {s.fixed && !s.edited && <span className="badge" title={FLAG_HELP['Pre-planned']}>Pre-planned</span>}
-                      {s.auto_assigned_host && <span className="badge accent" title={FLAG_HELP['Auto host']}>Auto host</span>}
-                      {s.edited && <span className="badge" title={FLAG_HELP['Edited']}>Edited</span>}
-                      {(conflicts.get(s.id) || []).map(c => <span key={c} className="badge warn" title={FLAG_HELP[c]}>{c}</span>)}
+                      {s.fixed && !s.edited && <span className="badge tip" tabIndex={0} data-tip={'Pre-planned:\n' + FLAG_HELP['Pre-planned']}>Pre-planned</span>}
+                      {s.auto_assigned_host && <span className="badge accent tip" tabIndex={0} data-tip={'Auto host:\n' + FLAG_HELP['Auto host']}>Auto host</span>}
+                      {s.edited && <span className="badge tip" tabIndex={0} data-tip={'Edited:\n' + FLAG_HELP['Edited']}>Edited</span>}
+                      {(issues.get(s.id) || []).filter(i => i.tag !== 'No host' && i.tag !== 'No room').map(i => (
+                        <span key={i.tag} className={'badge tip ' + i.severity} tabIndex={0} data-tip={i.tag + ':\n' + i.detail}>{i.tag}</span>
+                      ))}
                     </td>
                     <td className="nw">
                       <span className="row-actions">
@@ -260,12 +270,12 @@ export default async function RunPage({ params, searchParams }: { params: Promis
       {view === 'calendar' && (
         <>
           <p className="small muted">
-            Click a stream to edit it. <span className="badge mega">Purple</span> edge = Mega sale day stream,{' '}
-            <span className="badge warn">amber</span> edge = has a warning. TT = TikTok, SP = Shopee, TT+SP = both at once.
+            Hover a stream for details and warnings; click it to edit. <span className="badge mega">Purple</span> edge = Mega sale day,{' '}
+            <span className="badge warn">amber</span> = has a warning, <span className="badge bad">red</span> = no host. TT = TikTok, SP = Shopee, TT+SP = both at once.
           </p>
           <MonthCalendar year={m.year} month={m.month} streams={shown as CalStream[]}
             saleDays={Object.fromEntries(sales.map(s => [s.day, s.name]))}
-            flagged={new Set(conflicts.keys())}
+            issues={issues}
             hrefFor={sid => qs({ view: 'list', show: undefined, host: undefined, sort: undefined, dir: undefined, edit: String(sid) }) + '#s' + sid} />
           <FlagLegend />
         </>

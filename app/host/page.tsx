@@ -31,11 +31,12 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
            FROM scheduled_streams WHERE run_id = $1 AND host_id = $2 ORDER BY date, start_min`, [current.published_run_id, user.hostId])
         : [];
       content = current.published_run_id ? (
-        <div className="card">
+        <div className="card" data-tour="host-schedule">
           <h2 style={{ marginTop: 0 }}>Your streams in {monthLabel(current.year, current.month)}</h2>
           <div className="inline" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', marginBottom: 8 }}>
             <p className="muted" style={{ margin: 0 }}>
-              <span className="badge ok">Confirmed</span> {streams.length} stream{streams.length === 1 ? '' : 's'} for you this month.
+              <span className="badge ok">Confirmed</span> {streams.length} stream{streams.length === 1 ? '' : 's'} for you this month
+              {' \u00b7 '}{Math.round(streams.reduce((a, x) => a + (x.end_min - x.start_min), 0) / 6) / 10} hours.
             </p>
             <span className="inline small">
               <Link href={`/host?m=${current.id}`} className={asCalendar ? '' : 'badge accent'}>List</Link>
@@ -48,7 +49,7 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
             : <StreamList streams={streams} />}
         </div>
       ) : (
-        <div className="card">
+        <div className="card" data-tour="host-schedule">
           <p>The schedule for {monthLabel(current.year, current.month)} hasn&rsquo;t been confirmed yet. Check back later.</p>
           {current.availability_open && <p><Link href={`/host?m=${current.id}&tab=availability`}>Add or update your availability</Link> so you can be scheduled.</p>}
         </div>
@@ -77,7 +78,7 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
       <main>
         <div className="page-head">
           <div>
-            <h1>Hi {host?.name || user.name}</h1>
+            <h1 data-tour="title">Hi {host?.name || user.name}</h1>
             <p className="muted">
               <strong>1.</strong> Open <em>My availability</em>, tap every 2-hour slot you can stream, press <em>Save availability</em>.{' '}
               <strong>2.</strong> The ops team builds the schedule.{' '}
@@ -95,7 +96,7 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
           )}
         </div>
         {current && (
-          <div className="tabs">
+          <div className="tabs" data-tour="host-tabs">
             <Link className={tab === 'schedule' ? 'on' : ''} href={`/host?m=${current.id}`}>My schedule</Link>
             <Link className={tab === 'availability' ? 'on' : ''} href={`/host?m=${current.id}&tab=availability`}>
               My availability {current.availability_open ? '' : '(locked)'}

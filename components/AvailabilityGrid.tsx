@@ -102,7 +102,7 @@ export default function AvailabilityGrid({ hostId, monthId, year, month, initial
           Set up the first week, then use &ldquo;Copy to all&rdquo; to repeat a weekday pattern across the month.
         </p>
       )}
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ overflowX: 'auto' }} data-tour="avail-grid">
         <table className="avail">
           <thead>
             <tr>
@@ -160,7 +160,7 @@ export default function AvailabilityGrid({ hostId, monthId, year, month, initial
           {status && <span className={'badge ' + (status.kind === 'ok' ? 'ok' : 'bad')}>{status.text}</span>}
           {editable && dirty && <span className="badge warn">Unsaved changes</span>}
           {editable && (
-            <button className="primary" type="button" disabled={saving || (!dirty && !!lastSubmitted)} onClick={save}>
+            <button data-tour="avail-save" className="primary" type="button" disabled={saving || (!dirty && !!lastSubmitted)} onClick={save}>
               {saving ? 'Saving…' : 'Save availability'}
             </button>
           )}

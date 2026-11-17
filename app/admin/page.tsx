@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import { monthLabel } from '@/lib/data';
 import Flash from '@/components/Flash';
 import { createMonth } from './actions';
+import StartTourButton from '@/components/StartTourButton';
 
 export default async function AdminHome({ searchParams }: { searchParams: Promise<{ ok?: string; bad?: string }> }) {
   const sp = await searchParams;
@@ -26,13 +27,13 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     <>
       <div className="page-head">
         <div>
-          <h1>Months</h1>
+          <h1 data-tour="title">Months</h1>
           <p className="muted">Each month has its own sale dates, commitments, pre-planned streams and schedule versions.</p>
         </div>
       </div>
       <Flash sp={sp} />
       <Guide hasMonths={months.length > 0} />
-      <div className="table-wrap">
+      <div className="table-wrap" data-tour="months-table">
         <table>
           <thead>
             <tr><th>Month</th><th>Host availability</th><th className="num">Committed sessions</th><th>Schedule</th><th className="num">Versions</th></tr>
@@ -58,7 +59,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
           </tbody>
         </table>
       </div>
-      <div className="card">
+      <div className="card" data-tour="months-new">
         <h2 style={{ marginTop: 0 }}>Start a new month</h2>
         <form action={createMonth} className="form-row">
           <label className="field">Month<input type="month" name="ym" defaultValue={defaultYm} required /></label>
@@ -79,6 +80,7 @@ function Guide({ hasMonths }: { hasMonths: boolean }) {
   return (
     <details className="card guide" open={!hasMonths || undefined}>
       <summary>How to use this app <span className="small muted" style={{ fontWeight: 400 }}>(click to show or hide)</span></summary>
+      <p style={{ margin: '10px 0 4px' }}><StartTourButton /> <span className="small muted">Clicks you through each page and points at what to do. Or read the steps below.</span></p>
       <h3>One-time setup</h3>
       <ol>
         <li><strong>Bring in your data.</strong> Go to <Link href="/admin/import">Import</Link> and upload the Google Sheet (File &rarr; Download &rarr; .xlsx). This loads hosts, brands, rooms, commitments, pre-planned streams and availability.</li>

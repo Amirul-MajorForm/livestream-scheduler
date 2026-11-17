@@ -36,7 +36,7 @@ export default async function HostsPage({ searchParams }: { searchParams: Promis
         </form>
       </div>
       <Flash sp={sp} />
-      <div className="table-wrap">
+      <div className="table-wrap" data-tour="hosts-table">
         <table className="matrix">
           <thead>
             <tr>
@@ -49,10 +49,10 @@ export default async function HostsPage({ searchParams }: { searchParams: Promis
             </tr>
           </thead>
           <tbody>
-            {hosts.map(h => (
+            {hosts.map((h, idx) => (
               <tr key={h.id} style={h.active ? undefined : { opacity: 0.5 }}>
                 <td className="h">
-                  <Link href={`/admin/hosts/${h.id}`}><strong>{h.name}</strong></Link>
+                  <Link href={`/admin/hosts/${h.id}`} data-tour={idx === 0 ? 'hosts-first' : undefined}><strong>{h.name}</strong></Link>
                   {!h.active && <span className="badge"> inactive</span>}
                   {missing(h) && <span className="badge bad"> needs setup</span>}
                 </td>
