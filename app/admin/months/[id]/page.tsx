@@ -8,6 +8,7 @@ import Flash from '@/components/Flash';
 import ConfirmButton from '@/components/ConfirmButton';
 import SubmitButton from '@/components/SubmitButton';
 import AvailabilityGrid from '@/components/AvailabilityGrid';
+import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import {
   updateMonthRules, addSaleDay, deleteSaleDay, addCommitment, updateCommitmentQty, deleteCommitment,
   addPreplanned, deletePreplanned, updatePreplannedHost, setAvailabilityOpen, runSchedule, deleteMonth, unpublishMonth,
@@ -22,7 +23,7 @@ const TABS = [
 ] as const;
 const PLATFORMS = ['TikTok', 'Shopee', 'TikTok & Shopee'];
 
-type SP = { tab?: string; host?: string; ok?: string; bad?: string; t?: string };
+type SP = { tab?: string; host?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
 
 export default async function MonthPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
   const { id } = await params;
@@ -50,8 +51,8 @@ export default async function MonthPage({ params, searchParams }: { params: Prom
       <div key={sp.t || ''}>
       {tab === 'setup' && <SetupTab m={m} />}
       {tab === 'commitments' && <CommitmentsTab m={m} />}
-      {tab === 'preplanned' && <PreplannedTab m={m} />}
-      {tab === 'availability' && <AvailabilityTab m={m} hostId={sp.host ? Number(sp.host) : null} />}
+      {tab === 'preplanned' && <PreplannedTab m={m} sp={sp} />}
+      {tab === 'availability' && <AvailabilityTab m={m} hostId={sp.host ? Number(sp.host) : null} sp={sp} />}
       {tab === 'schedule' && <ScheduleTab m={m} />}
       </div>
     </>
@@ -197,8 +198,8 @@ async function CommitmentsTab({ m }: { m: MonthRow }) {
   );
 }
 
-async function PreplannedTab({ m }: { m: MonthRow }) {
-  const [rows, brands, hosts, rooms, sales] = await Promise.all([
+async function PreplannedTab({ m, sp }: { m: MonthRow; sp: SP }) {
+  const [allRows, brands, hosts, rooms, sales] = await Promise.all([
     query(`SELECT p.*, b.name AS brand, h.name AS host, h.active AS host_active FROM preplanned_streams p JOIN brands b ON b.id = p.brand_id
            LEFT JOIN hosts h ON h.id = p.host_id WHERE p.month_id = $1 ORDER BY p.date, p.start_min`, [m.id]),
     query('SELECT * FROM brands ORDER BY sort_order, name'),
@@ -207,6 +208,12 @@ async function PreplannedTab({ m }: { m: MonthRow }) {
     query('SELECT * FROM sale_days WHERE month_id = $1 ORDER BY day', [m.id]),
   ]);
   const { start, end } = monthRange(m.year, m.month);
+  const { sort, dir } = readSort(sp, ['date', 'host', 'brand', 'platform'], 'date');
+  const keyFn: Record<string, (r: any) => string> = {
+    date: r => r.date + String(r.start_min).padStart(4, '0'), host: r => r.host || '', brand: r => r.brand, platform: r => r.platform,
+  };
+  const rows = sortRows(allRows, keyFn[sort], dir);
+  const sortParams = { tab: 'preplanned' };
   return (
     <>
       <p className="muted">
@@ -214,16 +221,26 @@ async function PreplannedTab({ m }: { m: MonthRow }) {
         Leave the host blank to let the scheduler pick an eligible, available host.
       </p>
       <div className="table-wrap">
-        <table>
-          <thead><tr><th>Date</th><th>Time</th><th>Brand</th><th>Platform</th><th>Period</th><th>Host</th><th>Room</th><th /></tr></thead>
+        <table className="compact">
+          <thead>
+            <tr>
+              <SortHeader label="Date" k="date" sort={sort} dir={dir} params={sortParams} />
+              <th>Time</th>
+              <SortHeader label="Brand" k="brand" sort={sort} dir={dir} params={sortParams} />
+              <SortHeader label="Platform" k="platform" sort={sort} dir={dir} params={sortParams} />
+              <th>Period</th>
+              <SortHeader label="Host" k="host" sort={sort} dir={dir} params={sortParams} />
+              <th>Room</th><th />
+            </tr>
+          </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.id}>
-                <td>{fmtDate(r.date)}</td>
-                <td>{fmtRange(r.start_min, r.end_min)}</td>
-                <td><strong>{r.brand}</strong></td>
-                <td>{r.platform}</td>
-                <td>
+                <td className="nw">{fmtDate(r.date)}</td>
+                <td className="nw">{fmtRange(r.start_min, r.end_min)}</td>
+                <td className="nw"><strong>{r.brand}</strong></td>
+                <td className="nw">{r.platform}</td>
+                <td className="nw">
                   {r.period ? <span className={'badge ' + (r.period === 'mega' ? 'mega' : '')}>{r.period.toUpperCase()}</span> : <span className="muted small">auto</span>}
                   {r.sale && <span className="small muted"> {r.sale}</span>}
                 </td>
@@ -286,7 +303,7 @@ async function PreplannedTab({ m }: { m: MonthRow }) {
   );
 }
 
-async function AvailabilityTab({ m, hostId }: { m: MonthRow; hostId: number | null }) {
+async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number | null; sp: SP }) {
   const { start, end, days } = monthRange(m.year, m.month);
   if (hostId) {
     const host = await one('SELECT * FROM hosts WHERE id = $1', [hostId]);
@@ -307,8 +324,8 @@ async function AvailabilityTab({ m, hostId }: { m: MonthRow; hostId: number | nu
       </>
     );
   }
-  const [hosts, counts, subs, users] = await Promise.all([
-    query('SELECT id, name FROM hosts WHERE active ORDER BY sort_order, name'),
+  const [hostRows, counts, subs, users] = await Promise.all([
+    query('SELECT id, name FROM hosts WHERE active ORDER BY name'),
     query(`SELECT host_id, date, count(*)::int AS n FROM availability WHERE date BETWEEN $1 AND $2 GROUP BY host_id, date`, [start, end]),
     query('SELECT host_id, submitted_at FROM availability_submissions WHERE month_id = $1', [m.id]),
     query("SELECT host_id FROM users WHERE role = 'host'"),
@@ -317,6 +334,11 @@ async function AvailabilityTab({ m, hostId }: { m: MonthRow; hostId: number | nu
   const sub = new Map(subs.map(s => [s.host_id, s.submitted_at]));
   const hasLogin = new Set(users.map(u => u.host_id));
   const dayList = Array.from({ length: days }, (_, i) => isoDate(m.year, m.month, i + 1));
+  const totalOf = (hid: number) => dayList.reduce((a, d) => a + (cnt.get(hid + '|' + d) || 0), 0);
+  const statusOf = (hid: number) => sub.has(hid) ? 'a' : totalOf(hid) > 0 ? 'b' : 'c';
+  const { sort, dir } = readSort(sp, ['host', 'status', 'slots'], 'host');
+  const hosts = sortRows(hostRows, sort === 'host' ? (h: any) => h.name : sort === 'slots' ? (h: any) => totalOf(h.id) : (h: any) => statusOf(h.id), dir);
+  const sortParams = { tab: 'availability' };
   const perSlot = await query(`SELECT a.slot, count(DISTINCT a.host_id)::int AS hosts, count(*)::int AS n FROM availability a JOIN hosts h ON h.id = a.host_id
     WHERE h.active AND a.date BETWEEN $1 AND $2 GROUP BY a.slot ORDER BY a.slot`, [start, end]);
 
@@ -338,13 +360,15 @@ async function AvailabilityTab({ m, hostId }: { m: MonthRow; hostId: number | nu
         <table className="matrix">
           <thead>
             <tr>
-              <th>Host</th><th>Status</th><th className="num">Slots</th>
+              <SortHeader label="Host" k="host" sort={sort} dir={dir} params={sortParams} />
+              <SortHeader label="Status" k="status" sort={sort} dir={dir} params={sortParams} />
+              <SortHeader label="Slots" k="slots" sort={sort} dir={dir} params={sortParams} className="num" />
               {dayList.map(d => <th key={d} title={fmtDate(d)} style={{ textAlign: 'center' }}>{Number(d.slice(8))}</th>)}
             </tr>
           </thead>
           <tbody>
             {hosts.map(h => {
-              const total = dayList.reduce((a, d) => a + (cnt.get(h.id + '|' + d) || 0), 0);
+              const total = totalOf(h.id);
               return (
                 <tr key={h.id}>
                   <td className="h"><Link href={`/admin/months/${m.id}?tab=availability&host=${h.id}`}>{h.name}</Link></td>

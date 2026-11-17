@@ -5,10 +5,11 @@ import { monthLabel, monthRange } from '@/lib/data';
 import TopBar from '@/components/TopBar';
 import AvailabilityGrid from '@/components/AvailabilityGrid';
 import StreamList, { type StreamRow } from '@/components/StreamList';
+import MonthCalendar from '@/components/MonthCalendar';
 
 export const dynamic = 'force-dynamic';
 
-export default async function HostHome({ searchParams }: { searchParams: Promise<{ m?: string; tab?: string }> }) {
+export default async function HostHome({ searchParams }: { searchParams: Promise<{ m?: string; tab?: string; view?: string }> }) {
   const user = await requireHost();
   const sp = await searchParams;
   const host = await one('SELECT * FROM hosts WHERE id = $1', [user.hostId]);
@@ -22,6 +23,8 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
   if (current) {
     const { start, end } = monthRange(current.year, current.month);
     if (tab === 'schedule') {
+      const sales = await query('SELECT name, day FROM sale_days WHERE month_id = $1', [current.id]);
+      const asCalendar = sp.view === 'calendar';
       const streams = current.published_run_id
         ? await query<StreamRow>(
           `SELECT id, date, start_min, end_min, host_name, brand, period, sale, platform, room
@@ -30,12 +33,23 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
       content = current.published_run_id ? (
         <div className="card">
           <h2 style={{ marginTop: 0 }}>Your streams in {monthLabel(current.year, current.month)}</h2>
-          <p className="muted">{streams.length} stream{streams.length === 1 ? '' : 's'} scheduled.</p>
-          <StreamList streams={streams} />
+          <div className="inline" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', marginBottom: 8 }}>
+            <p className="muted" style={{ margin: 0 }}>
+              <span className="badge ok">Confirmed</span> {streams.length} stream{streams.length === 1 ? '' : 's'} for you this month.
+            </p>
+            <span className="inline small">
+              <Link href={`/host?m=${current.id}`} className={asCalendar ? '' : 'badge accent'}>List</Link>
+              <Link href={`/host?m=${current.id}&view=calendar`} className={asCalendar ? 'badge accent' : ''}>Calendar</Link>
+            </span>
+          </div>
+          {asCalendar
+            ? <MonthCalendar year={current.year} month={current.month} streams={streams} showHost={false}
+                saleDays={Object.fromEntries(sales.map(s => [s.day, s.name]))} />
+            : <StreamList streams={streams} />}
         </div>
       ) : (
         <div className="card">
-          <p>The schedule for {monthLabel(current.year, current.month)} hasn&rsquo;t been published yet.</p>
+          <p>The schedule for {monthLabel(current.year, current.month)} hasn&rsquo;t been confirmed yet. Check back later.</p>
           {current.availability_open && <p><Link href={`/host?m=${current.id}&tab=availability`}>Add or update your availability</Link> so you can be scheduled.</p>}
         </div>
       );
@@ -64,7 +78,11 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
         <div className="page-head">
           <div>
             <h1>Hi {host?.name || user.name}</h1>
-            <p className="muted">Mark when you can stream, then check back here for your schedule once it&rsquo;s published.</p>
+            <p className="muted">
+              <strong>1.</strong> Open <em>My availability</em>, tap every 2-hour slot you can stream, press <em>Save availability</em>.{' '}
+              <strong>2.</strong> The ops team builds the schedule.{' '}
+              <strong>3.</strong> Once it&rsquo;s confirmed, your streams appear under <em>My schedule</em>.
+            </p>
           </div>
           {months.length > 1 && (
             <form className="inline">

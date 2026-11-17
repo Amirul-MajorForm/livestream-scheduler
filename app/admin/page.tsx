@@ -31,6 +31,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         </div>
       </div>
       <Flash sp={sp} />
+      <Guide hasMonths={months.length > 0} />
       <div className="table-wrap">
         <table>
           <thead>
@@ -71,5 +72,33 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         </form>
       </div>
     </>
+  );
+}
+
+function Guide({ hasMonths }: { hasMonths: boolean }) {
+  return (
+    <details className="card guide" open={!hasMonths || undefined}>
+      <summary>How to use this app <span className="small muted" style={{ fontWeight: 400 }}>(click to show or hide)</span></summary>
+      <h3>One-time setup</h3>
+      <ol>
+        <li><strong>Bring in your data.</strong> Go to <Link href="/admin/import">Import</Link> and upload the Google Sheet (File &rarr; Download &rarr; .xlsx). This loads hosts, brands, rooms, commitments, pre-planned streams and availability.</li>
+        <li><strong>Give every host a login.</strong> <Link href="/admin/hosts">Hosts</Link> &rarr; click a name &rarr; <em>Login</em> box &rarr; type their email and a temporary password &rarr; <em>Create login</em>. Send them the website link, email and password.</li>
+      </ol>
+      <h3>Every month</h3>
+      <ol>
+        <li><strong>Create the month.</strong> Under <em>Start a new month</em> below, pick the month, copy from last month, click <em>Create month</em>.</li>
+        <li><strong>Check sale dates.</strong> Tab <em>Rules &amp; sale days</em>: make sure each Mega sale (Double digit, Mid-month, Payday, D-1 and D-Day) is on the right date.</li>
+        <li><strong>Set the commitments.</strong> Tab <em>Commitments</em>: change the number of sessions for each brand and platform, then click <em>Save</em> on that row. For a new Mega commitment, tick the sales it belongs to.</li>
+        <li><strong>Add confirmed bookings.</strong> Tab <em>Pre-planned streams</em>: add streams that are already agreed (date, time, brand, platform). Choose the host, or leave it on <em>Auto-assign</em> to let the app pick one.</li>
+        <li><strong>Collect availability.</strong> Ask hosts to sign in, open <em>My availability</em>, tap the slots they can do and press <em>Save</em>. Tab <em>Host availability</em> shows who has done it (&ldquo;Not yet&rdquo; = chase them). You can fill it in for a host by clicking their name. When everyone is done, click <em>Lock availability</em>.</li>
+        <li><strong>Make the schedule.</strong> Tab <em>Schedule</em> &rarr; <em>Run scheduler</em>. Wait a few seconds; it opens the result.</li>
+        <li><strong>Check it.</strong> The top boxes show how many commitments were filled. <span className="badge bad">Red</span> and <span className="badge warn">amber</span> tags are things to check (open <em>What do the tags mean?</em> under the list). <em>Summary &amp; diagnostics</em> explains every unfilled commitment. Fix a stream with <em>Edit</em>, or change settings (e.g. raise a host&rsquo;s monthly cap) and run again. Each run is saved as a new version, so nothing is lost.</li>
+        <li><strong>Confirm it.</strong> Click <em>Publish to hosts</em>. That is the confirmed schedule: hosts now see their streams under <em>My schedule</em>. Only one version per month is published at a time.</li>
+      </ol>
+      <div className="tip">
+        <strong>Good to know:</strong> sort any list by clicking a column heading (e.g. <em>Host</em>). Switch between <em>List</em> and <em>Calendar</em> on a schedule.
+        Changes to a published version show to hosts immediately, so use <em>Duplicate</em> to try changes on a draft first.
+      </div>
+    </details>
   );
 }

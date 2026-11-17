@@ -3,17 +3,24 @@ import { query } from '@/lib/db';
 import { pct } from '@/lib/format';
 import Flash from '@/components/Flash';
 import { createHost } from '../actions';
+import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 
-export default async function HostsPage({ searchParams }: { searchParams: Promise<{ ok?: string; bad?: string }> }) {
+export default async function HostsPage({ searchParams }: { searchParams: Promise<{ ok?: string; bad?: string; sort?: string; dir?: string }> }) {
   const sp = await searchParams;
-  const [hosts, brands, prefs, users] = await Promise.all([
-    query('SELECT * FROM hosts ORDER BY active DESC, sort_order, name'),
+  const [hostRows, brands, prefs, users] = await Promise.all([
+    query('SELECT * FROM hosts ORDER BY active DESC, name'),
     query('SELECT id, name FROM brands ORDER BY sort_order, name'),
     query('SELECT host_id, brand_id, level FROM host_brand_prefs'),
     query("SELECT host_id, email FROM users WHERE role = 'host'"),
   ]);
   const pref = new Map(prefs.map(p => [p.host_id + '|' + p.brand_id, p.level]));
   const login = new Map(users.map(u => [u.host_id, u.email]));
+  const { sort, dir } = readSort(sp, ['host', 'login', 'max', 'pct'], 'host');
+  const keyFn: Record<string, (h: any) => string | number> = {
+    host: h => (h.active ? '0' : '1') + h.name.toLowerCase(), login: h => login.get(h.id) ?? '',
+    max: h => h.max_streams_month ?? -1, pct: h => h.max_brand_pct ?? -1,
+  };
+  const hosts = sortRows(hostRows, keyFn[sort], dir);
   const missing = (h: any) => h.active && (h.max_streams_month == null || !h.max_brand_pct || !h.platforms);
 
   return (
@@ -33,7 +40,11 @@ export default async function HostsPage({ searchParams }: { searchParams: Promis
         <table className="matrix">
           <thead>
             <tr>
-              <th>Host</th><th>Login</th><th className="num">Max / month</th><th className="num">Max % per brand</th><th>Platforms</th>
+              <SortHeader label="Host" k="host" sort={sort} dir={dir} params={{}} />
+              <SortHeader label="Login" k="login" sort={sort} dir={dir} params={{}} />
+              <SortHeader label="Max / month" k="max" sort={sort} dir={dir} params={{}} className="num" />
+              <SortHeader label="Max % per brand" k="pct" sort={sort} dir={dir} params={{}} className="num" />
+              <th>Platforms</th>
               {brands.map(b => <th key={b.id} style={{ textAlign: 'center', writingMode: 'vertical-rl', transform: 'rotate(180deg)', height: 110 }}>{b.name}</th>)}
             </tr>
           </thead>
