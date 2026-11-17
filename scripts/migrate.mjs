@@ -7,6 +7,14 @@ import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcryptjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const secret = process.env.SESSION_SECRET || '';
+if (secret.length < 16) {
+  console.error(secret
+    ? 'SESSION_SECRET is too short (' + secret.length + ' characters). Use at least 16; e.g. the output of: openssl rand -hex 32'
+    : 'SESSION_SECRET is not set. Add it to the app service variables: a long random string, e.g. the output of: openssl rand -hex 32');
+  process.exit(1);
+}
+
 const url = process.env.DATABASE_URL;
 if (!url) {
   console.error('DATABASE_URL is not set. On Railway, add it to the app service as ${{Postgres.DATABASE_URL}}.');
