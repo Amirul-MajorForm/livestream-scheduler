@@ -7,9 +7,24 @@ import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcryptjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is not set'); process.exit(1); }
-const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-await client.connect();
+const url = process.env.DATABASE_URL;
+if (!url) {
+  console.error('DATABASE_URL is not set. On Railway, add it to the app service as ${{Postgres.DATABASE_URL}}.');
+  process.exit(1);
+}
+let host = '(unparseable)';
+try { const u = new URL(url); host = u.hostname + ':' + (u.port || '5432'); } catch {}
+const client = new pg.Client({ connectionString: url });
+try {
+  await client.connect();
+} catch (e) {
+  console.error(`\nCould not connect to the database at ${host} (${e.code || e.message}).`);
+  if (/^(localhost|127\.0\.0\.1|::1|\[::1\])/.test(host) && (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production')) {
+    console.error('DATABASE_URL points at localhost. On Railway the database is a separate service:');
+    console.error('set DATABASE_URL on the app service to ${{Postgres.DATABASE_URL}} (use your Postgres service name).');
+  }
+  process.exit(1);
+}
 try {
   await client.query('SELECT pg_advisory_lock(424242)');
   await client.query('CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
