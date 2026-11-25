@@ -1,9 +1,9 @@
-import Link from 'next/link';
 import { query } from '@/lib/db';
 import { pct } from '@/lib/format';
 import Flash from '@/components/Flash';
+import HostMatrix from '@/components/HostMatrix';
+import { readSort, sortRows } from '@/components/SortHeader';
 import { createHost } from '../actions';
-import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 
 export default async function HostsPage({ searchParams }: { searchParams: Promise<{ ok?: string; bad?: string; sort?: string; dir?: string }> }) {
   const sp = await searchParams;
@@ -13,22 +13,25 @@ export default async function HostsPage({ searchParams }: { searchParams: Promis
     query('SELECT host_id, brand_id, level FROM host_brand_prefs'),
     query("SELECT host_id, email FROM users WHERE role = 'host'"),
   ]);
-  const pref = new Map(prefs.map(p => [p.host_id + '|' + p.brand_id, p.level]));
   const login = new Map(users.map(u => [u.host_id, u.email]));
-  const { sort, dir } = readSort(sp, ['host', 'login', 'max', 'pct'], 'host');
+  const { sort, dir } = readSort(sp, ['host', 'status', 'login', 'max', 'pct'], 'host');
   const keyFn: Record<string, (h: any) => string | number> = {
-    host: h => (h.active ? '0' : '1') + h.name.toLowerCase(), login: h => login.get(h.id) ?? '',
+    host: h => (h.active ? '0' : '1') + h.name.toLowerCase(),
+    status: h => (h.active ? '0' : '1') + h.name.toLowerCase(),
+    login: h => login.get(h.id) ?? '',
     max: h => h.max_streams_month ?? -1, pct: h => h.max_brand_pct ?? -1,
   };
   const hosts = sortRows(hostRows, keyFn[sort], dir);
-  const missing = (h: any) => h.active && (h.max_streams_month == null || !h.max_brand_pct || !h.platforms);
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Hosts</h1>
-          <p className="muted">Caps, platforms, rooms and which brands each host can stream. P = Preferred, R = Regular, blank = Excluded.</p>
+          <p className="muted">
+            Change a brand cell to <strong>P</strong> (Preferred), <strong>R</strong> (Regular) or <strong>&ndash;</strong> (Excluded, never scheduled),
+            or a host&rsquo;s <strong>Status</strong>: changes save straight away. Click a name for caps, platforms, rooms and login.
+          </p>
         </div>
         <form action={createHost} className="inline">
           <input name="name" placeholder="New host name" required />
@@ -36,39 +39,16 @@ export default async function HostsPage({ searchParams }: { searchParams: Promis
         </form>
       </div>
       <Flash sp={sp} />
-      <div className="table-wrap" data-tour="hosts-table">
-        <table className="matrix">
-          <thead>
-            <tr>
-              <SortHeader label="Host" k="host" sort={sort} dir={dir} params={{}} />
-              <SortHeader label="Login" k="login" sort={sort} dir={dir} params={{}} />
-              <SortHeader label="Max / month" k="max" sort={sort} dir={dir} params={{}} className="num" />
-              <SortHeader label="Max % per brand" k="pct" sort={sort} dir={dir} params={{}} className="num" />
-              <th>Platforms</th>
-              {brands.map(b => <th key={b.id} style={{ textAlign: 'center', writingMode: 'vertical-rl', transform: 'rotate(180deg)', height: 110 }}>{b.name}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {hosts.map((h, idx) => (
-              <tr key={h.id} style={h.active ? undefined : { opacity: 0.5 }}>
-                <td className="h">
-                  <Link href={`/admin/hosts/${h.id}`} data-tour={idx === 0 ? 'hosts-first' : undefined}><strong>{h.name}</strong></Link>
-                  {!h.active && <span className="badge"> inactive</span>}
-                  {missing(h) && <span className="badge bad"> needs setup</span>}
-                </td>
-                <td className="h small">{login.get(h.id) ?? <span className="muted">none</span>}</td>
-                <td className="num">{h.max_streams_month ?? '–'}</td>
-                <td className="num">{pct(h.max_brand_pct) || '–'}</td>
-                <td className="h small">{h.platforms}</td>
-                {brands.map(b => {
-                  const lv = pref.get(h.id + '|' + b.id);
-                  return <td key={b.id} className={lv === 'preferred' ? 'heat3' : lv === 'regular' ? 'heat1' : 'heat0'}>{lv === 'preferred' ? 'P' : lv === 'regular' ? 'R' : ''}</td>;
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <HostMatrix
+        sort={sort} dir={dir}
+        brands={brands.map(b => ({ id: b.id, name: b.name }))}
+        prefs={Object.fromEntries(prefs.map(p => [p.host_id + '|' + p.brand_id, p.level]))}
+        hosts={hosts.map(h => ({
+          id: h.id, name: h.name, active: h.active, login: login.get(h.id) ?? null,
+          maxStreams: h.max_streams_month, maxBrandPct: pct(h.max_brand_pct), platforms: h.platforms,
+          needsSetup: h.max_streams_month == null || !h.max_brand_pct || !h.platforms,
+        }))}
+      />
     </>
   );
 }
