@@ -1,3 +1,10 @@
+/** Short labels used in the list so each row fits on one line; hover shows the full explanation. */
+export const SHORT_TAG: Record<string, string> = {
+  'Host not marked available': 'Not available',
+  'Host double-booked': 'Double-booked',
+  'Same brand at the same time': 'Brand overlap',
+};
+
 /** Explains every tag shown on a schedule version. */
 export const FLAG_HELP: Record<string, string> = {
   'Pre-planned': 'A confirmed booking from the Pre-planned streams tab. It is locked in as entered, even if it breaks a rule; the tags next to it tell you which rule.',
@@ -27,10 +34,10 @@ export default function FlagLegend() {
             <tr><td><span className="badge">Edited</span></td><td>{FLAG_HELP['Edited']}</td></tr>
             <tr><td><span className="badge bad">No host</span></td><td>{FLAG_HELP['No host']}</td></tr>
             <tr><td><span className="badge bad">No room</span></td><td>{FLAG_HELP['No room']}</td></tr>
-            <tr><td><span className="badge warn">Host not marked available</span></td><td>{FLAG_HELP['Host not marked available']}</td></tr>
-            <tr><td><span className="badge warn">Host double-booked</span></td><td>{FLAG_HELP['Host double-booked']}</td></tr>
+            <tr><td><span className="badge warn">{SHORT_TAG['Host not marked available']}</span> <span className="small muted">(host not marked available)</span></td><td>{FLAG_HELP['Host not marked available']}</td></tr>
+            <tr><td><span className="badge warn">{SHORT_TAG['Host double-booked']}</span> <span className="small muted">(host double-booked)</span></td><td>{FLAG_HELP['Host double-booked']}</td></tr>
             <tr><td><span className="badge warn">Room clash</span></td><td>{FLAG_HELP['Room clash']}</td></tr>
-            <tr><td><span className="badge warn">Same brand at the same time</span></td><td>{FLAG_HELP['Same brand at the same time']}</td></tr>
+            <tr><td><span className="badge warn">{SHORT_TAG['Same brand at the same time']}</span> <span className="small muted">(same brand at the same time)</span></td><td>{FLAG_HELP['Same brand at the same time']}</td></tr>
             <tr><td><span className="badge">BAU</span> <span className="badge mega">MEGA</span></td><td>Normal day or a Mega sale day (with the sale name), from the month&rsquo;s sale days.</td></tr>
             <tr><td className="small" style={{ whiteSpace: 'nowrap' }}>TT / SP / TT+SP</td><td>On the calendar: TikTok, Shopee, or one simultaneous stream on both.</td></tr>
           </tbody>

@@ -219,9 +219,13 @@ export async function updateStream(f: FormData) {
   let end = parseTimeInput(f.get('end'));
   if (end === 0) end = 1440;
   if (start == null || end == null || end <= start) back(`/admin/runs/${runId}?edit=${n(f, 'id')}`, 'End time must be after start time', 'bad');
-  const done = await query(`UPDATE scheduled_streams SET host_id=$2, host_name=$3, room=$4, date=$5, start_min=$6, end_min=$7, edited=TRUE
+  const brand = s(f, 'brand'), platform = s(f, 'platform'), period = s(f, 'period').toUpperCase();
+  if (!brand || !parsePlatforms(platform) || !['BAU', 'MEGA'].includes(period))
+    back(`/admin/runs/${runId}?edit=${n(f, 'id')}`, 'Brand, platform and period are required', 'bad');
+  const done = await query(`UPDATE scheduled_streams SET host_id=$2, host_name=$3, room=$4, date=$5, start_min=$6, end_min=$7,
+      brand=$9, platform=$10, period=$11, sale=$12, edited=TRUE
     WHERE id=$1 AND run_id=$8 AND status = 'tentative' RETURNING id`,
-    [n(f, 'id'), hostId, host?.name ?? '', s(f, 'room'), s(f, 'date'), start, end, runId]);
+    [n(f, 'id'), hostId, host?.name ?? '', s(f, 'room'), s(f, 'date'), start, end, runId, brand, platform, period, period === 'MEGA' ? s(f, 'sale') : '']);
   if (!done.length) back(`/admin/runs/${runId}#s${n(f, 'id')}`, 'This stream is confirmed. Set it back to Tentative before editing.', 'bad');
   back(`/admin/runs/${runId}#s${n(f, 'id')}`, 'Stream updated');
 }
@@ -247,7 +251,10 @@ export async function setStreamStatus(f: FormData) {
   if (status === 'confirmed' && !row?.host_name) back(returnPath(f, runId), 'Assign a host before confirming this stream.', 'bad');
   await query(`UPDATE scheduled_streams SET status = $3, confirmed_at = CASE WHEN $3 = 'confirmed' THEN now() ELSE NULL END WHERE id = $1 AND run_id = $2`,
     [n(f, 'id'), runId, status]);
-  back(returnPath(f, runId) + `#s${n(f, 'id')}`, status === 'confirmed' ? 'Confirmed. It is locked and shows as confirmed to the host.' : 'Set back to tentative. You can edit it again.');
+  const live = !!(await one('SELECT 1 FROM months WHERE published_run_id = $1', [runId]));
+  back(returnPath(f, runId) + `#s${n(f, 'id')}`, status === 'confirmed'
+    ? 'Confirmed and locked. ' + (live ? 'The host sees it as confirmed.' : 'Hosts will see it once you publish this version.')
+    : 'Set back to tentative. You can edit it again.');
 }
 
 /** Confirms (or un-confirms) every stream id posted, e.g. all streams currently shown in the list. Streams without a host are skipped. */
@@ -258,7 +265,9 @@ export async function setManyStatus(f: FormData) {
   if (!ids.length || !['tentative', 'confirmed'].includes(status)) back(returnPath(f, runId), 'Nothing to change', 'bad');
   const rows = await query(`UPDATE scheduled_streams SET status = $3, confirmed_at = CASE WHEN $3 = 'confirmed' THEN now() ELSE NULL END
     WHERE run_id = $1 AND id = ANY($2) AND status <> $3 AND ($3 = 'tentative' OR host_name <> '') RETURNING id`, [runId, ids, status]);
-  back(returnPath(f, runId), `${rows.length} stream${rows.length === 1 ? '' : 's'} ${status === 'confirmed' ? 'confirmed' : 'set back to tentative'}.`);
+  const live = !!(await one('SELECT 1 FROM months WHERE published_run_id = $1', [runId]));
+  back(returnPath(f, runId), `${rows.length} stream${rows.length === 1 ? '' : 's'} ${status === 'confirmed' ? 'confirmed' : 'set back to tentative'}.` +
+    (status === 'confirmed' && !live ? ' Hosts will see them once you publish this version.' : ''));
 }
 
 export async function addStream(f: FormData) {

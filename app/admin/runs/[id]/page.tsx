@@ -9,7 +9,7 @@ import ConfirmButton from '@/components/ConfirmButton';
 import AutoSubmitSelect from '@/components/AutoSubmitSelect';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import MonthCalendar, { type CalStream } from '@/components/MonthCalendar';
-import FlagLegend, { FLAG_HELP } from '@/components/FlagLegend';
+import FlagLegend, { FLAG_HELP, SHORT_TAG } from '@/components/FlagLegend';
 import { findIssues } from '@/lib/issues';
 import { brandStats, SESSION_HOURS } from '@/lib/brandStats';
 import { publishRun, unpublishMonth, deleteRun, renameRun, duplicateRun, updateStream, deleteStream, addStream, setStreamStatus, setManyStatus } from '../../actions';
@@ -120,7 +120,12 @@ export default async function RunPage({ params, searchParams }: { params: Promis
         </div>
       </div>
       <Flash sp={sp} />
-      {published && <div className="notice info">This version is live: edits here are visible to hosts straight away. Use Duplicate to work on a draft copy.</div>}
+      {published
+        ? <div className="notice info slim">This version is live: hosts see it, including any streams you confirm here. Use Duplicate to work on a draft copy.</div>
+        : <div className="notice warn slim">
+            <strong>Draft: hosts can&rsquo;t see this version.</strong> Confirming streams here won&rsquo;t show on host pages until you click <em>Publish to hosts</em>.
+            {m.published_run_id && <> The version hosts see now is <Link href={`/admin/runs/${m.published_run_id}`}>this one</Link>.</>}
+          </div>}
 
       <div className="kpis" data-tour="run-stats">
         <div className="kpi" data-tip={'Committed hours:\nAll sessions on the Commitments tab for this month, at 2 hours each.'}>
@@ -240,8 +245,8 @@ export default async function RunPage({ params, searchParams }: { params: Promis
 
       {view === 'list' && (
         <>
-          <div className="table-wrap" data-tour="run-table">
-            <table className="compact">
+          <div className="table-wrap sticky-table" data-tour="run-table">
+            <table className="compact one-line">
               <thead>
                 <tr>
                   <SortHeader label="Date" k="date" sort={sort} dir={dir} params={sortParams} />
@@ -258,29 +263,53 @@ export default async function RunPage({ params, searchParams }: { params: Promis
               </thead>
               <tbody>
                 {shown.map(s => sp.edit === String(s.id) ? (
-                  <tr key={s.id} id={'s' + s.id} style={{ background: 'var(--accent-soft)' }}>
-                    <td colSpan={10}>
-                      <form action={updateStream} className="form-row">
-                        <input type="hidden" name="id" value={s.id} /><input type="hidden" name="runId" value={run.id} />
-                        <label className="field">Date<input type="date" name="date" min={start} max={end} defaultValue={s.date} /></label>
-                        <label className="field">Start<input type="time" name="start" step={900} defaultValue={formatTime(s.start_min)} /></label>
-                        <label className="field">End<input type="time" name="end" step={900} defaultValue={formatTime(s.end_min % 1440)} /></label>
-                        <label className="field">Host
-                          <select name="hostId" defaultValue={s.host_id ?? ''}>
-                            <option value="">No host</option>
-                            {hosts.map(h => <option key={h.id} value={h.id}>{h.name}{h.active ? '' : ' (inactive)'}</option>)}
-                          </select>
-                        </label>
-                        <label className="field">Room
-                          <select name="room" defaultValue={s.room}>
-                            <option value="">None</option>
-                            {rooms.map(r => <option key={r.name}>{r.name}</option>)}
-                          </select>
-                        </label>
-                        <div className="inline"><button className="primary" type="submit">Save</button><Link href={qs({}) + `#s${s.id}`}>Cancel</Link></div>
-                      </form>
-                      <p className="small muted">{s.brand} on {s.platform}. Warnings are re-checked after saving.</p>
+                  <tr key={s.id} id={'s' + s.id} className="row-editing">
+                    <td><input form={'f' + s.id} type="date" name="date" min={start} max={end} defaultValue={s.date} aria-label="Date" /></td>
+                    <td className="nw">
+                      <input form={'f' + s.id} name="start" className="hhmm" defaultValue={formatTime(s.start_min)} aria-label="Start (24-hour, e.g. 20:00)" title="Start, 24-hour clock (e.g. 20:00)" pattern="[0-2]?[0-9]:[0-5][0-9]" required />
+                      {'\u2013'}
+                      <input form={'f' + s.id} name="end" className="hhmm" defaultValue={formatTime(s.end_min % 1440)} aria-label="End (24-hour, e.g. 22:00)" title="End, 24-hour clock (e.g. 22:00; 00:00 = midnight)" pattern="[0-2]?[0-9]:[0-5][0-9]" required />
                     </td>
+                    <td>
+                      <select form={'f' + s.id} name="hostId" defaultValue={s.host_id ?? ''} aria-label="Host">
+                        <option value="">No host</option>
+                        {hosts.map(h => <option key={h.id} value={h.id}>{h.name}{h.active ? '' : ' (inactive)'}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select form={'f' + s.id} name="brand" defaultValue={s.brand} aria-label="Brand">
+                        {[...new Set([s.brand, ...brands.map(b => b.name)])].map(b => <option key={b}>{b}</option>)}
+                      </select>
+                    </td>
+                    <td className="nw">
+                      <select form={'f' + s.id} name="period" defaultValue={s.period} aria-label="Period">
+                        <option value="BAU">BAU</option><option value="MEGA">MEGA</option>
+                      </select>
+                      <select form={'f' + s.id} name="sale" defaultValue={s.sale} aria-label="Sale (Mega only)">
+                        <option value="">(no sale)</option>
+                        {[...new Set([s.sale, ...sales.map(x => x.name)].filter(Boolean))].map(x => <option key={x}>{x}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select form={'f' + s.id} name="platform" defaultValue={s.platform} aria-label="Platform">
+                        {PLATFORMS.map(p => <option key={p}>{p}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select form={'f' + s.id} name="room" defaultValue={s.room} aria-label="Room">
+                        <option value="">None</option>
+                        {rooms.map(r => <option key={r.name}>{r.name}</option>)}
+                      </select>
+                    </td>
+                    <td colSpan={2} className="nw">
+                      <form id={'f' + s.id} action={updateStream} className="row-actions">
+                        <input type="hidden" name="id" value={s.id} /><input type="hidden" name="runId" value={run.id} />
+                        <button className="primary" type="submit">Save</button>
+                        <Link href={qs({}) + `#s${s.id}`}>Cancel</Link>
+                        <span className="small muted">Warnings re-check on save</span>
+                      </form>
+                    </td>
+                    <td />
                   </tr>
                 ) : (
                   <tr key={s.id} id={'s' + s.id} className={s.status === 'confirmed' ? 'row-confirmed' : undefined}>
@@ -299,7 +328,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
                       {s.auto_assigned_host && <span className="badge accent tip" tabIndex={0} data-tip={'Auto host:\n' + FLAG_HELP['Auto host']}>Auto host</span>}
                       {s.edited && <span className="badge tip" tabIndex={0} data-tip={'Edited:\n' + FLAG_HELP['Edited']}>Edited</span>}
                       {(issues.get(s.id) || []).filter(i => i.tag !== 'No host' && i.tag !== 'No room').map(i => (
-                        <span key={i.tag} className={'badge tip ' + i.severity} tabIndex={0} data-tip={i.tag + ':\n' + i.detail}>{i.tag}</span>
+                        <span key={i.tag} className={'badge tip ' + i.severity} tabIndex={0} data-tip={i.tag + ':\n' + i.detail}>{SHORT_TAG[i.tag] || i.tag}</span>
                       ))}
                     </td>
                     <td className="nw">

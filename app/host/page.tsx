@@ -26,8 +26,12 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
   const months = [thisMonth, nextMonth, monthAfter, ...later];
 
   const tab = sp.tab === 'availability' ? 'availability' : 'schedule';
-  // Default: your schedule for this month; availability for next month (what you're usually planning).
-  const current = months.find(m => String(m.id) === sp.m) || (tab === 'availability' && nextMonth.availability_open ? nextMonth : thisMonth);
+  // Default: the schedule tab opens on the nearest month that has a schedule out (this month if it
+  // has one, else the next one that does); the availability tab opens on next month.
+  const current = months.find(m => String(m.id) === sp.m)
+    || (tab === 'availability'
+      ? (nextMonth.availability_open ? nextMonth : thisMonth)
+      : (months.find(m => m.published_run_id) || thisMonth));
   const view = sp.view === 'calendar' ? 'calendar' : 'list';
   const link = (o: { m?: number; tab?: string; view?: string }) => {
     const q = new URLSearchParams();

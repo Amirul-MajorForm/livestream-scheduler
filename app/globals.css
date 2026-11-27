@@ -380,3 +380,26 @@ tr.row-inactive td:nth-child(2) { opacity: 1; }
   .avail.hourly th, .avail.hourly td { padding: 1px 0.5px; }
   .avail.hourly tr.hours th { font-size: 10px; }
 }
+
+/* Schedule list: one line per row, header stays visible while scrolling */
+.sticky-table { max-height: calc(100vh - 90px); overflow: auto; }
+.sticky-table thead th { position: sticky; top: 0; z-index: 3; background: #fafaf8; box-shadow: inset 0 -1px 0 var(--line); }
+table.one-line td, table.one-line th { white-space: nowrap; padding: 3px 8px; }
+table.one-line td.tags { min-width: 0; }
+table.one-line td.tags .badge { margin: 0 3px 0 0; }
+table.one-line .status-select { padding: 1px 4px; font-size: 11.5px; }
+table.one-line tr.row-editing td { background: var(--accent-soft); padding: 4px 3px; }
+table.one-line tr.row-editing input, table.one-line tr.row-editing select { font-size: 12.5px; padding: 3px 4px; max-width: 150px; }
+table.one-line tr.row-editing input[type=time] { width: 92px; }
+.notice.slim { padding: 6px 12px; margin-bottom: 10px; font-size: 13px; }
+main { max-width: 1440px; }
+/* Pin the schedule list header to the window (under the 56px top bar) instead of an inner scroll box. */
+.sticky-table { max-height: none; overflow: visible; }
+.sticky-table thead th { top: 56px; }
+table.one-line tr.row-editing input, table.one-line tr.row-editing select { max-width: 128px; }
+table.one-line tr.row-editing input[type=date] { width: 128px; }
+table.one-line tr.row-editing input[type=time] { width: 104px; }
+table.one-line tr.row-editing select[name=period] { width: 64px; }
+table.one-line tr.row-editing select[name=sale] { max-width: 120px; }
+table.one-line tr.row-editing td:last-child .row-actions { gap: 8px; }
+table.one-line tr.row-editing input.hhmm { width: 54px; text-align: center; }
