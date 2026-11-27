@@ -6,6 +6,8 @@ import TopBar from '@/components/TopBar';
 import AvailabilityGrid from '@/components/AvailabilityGrid';
 import StreamList, { type StreamRow } from '@/components/StreamList';
 import MonthCalendar from '@/components/MonthCalendar';
+import PlatformTag from '@/components/PlatformTag';
+import { brandColors } from '@/lib/colors';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +48,11 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
   const { start, end } = monthRange(current.year, current.month);
   let content: React.ReactNode;
   if (tab === 'schedule') {
-    const sales = await query('SELECT name, day FROM sale_days WHERE month_id = $1', [current.id]);
+    const [sales, brandRows] = await Promise.all([
+      query('SELECT name, day FROM sale_days WHERE month_id = $1', [current.id]),
+      query('SELECT name FROM brands ORDER BY sort_order, name'),
+    ]);
+    const colors = brandColors(brandRows.map(b => b.name));
     const streams = current.published_run_id
       ? await query<StreamRow>(
         `SELECT id, date, start_min, end_min, host_name, brand, period, sale, platform, room, status
@@ -69,10 +75,19 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
             <Link href={link({ view: 'calendar' })} className={view === 'calendar' ? 'on' : ''} role="tab" aria-selected={view === 'calendar'}>Calendar</Link>
           </div>
         </div>
+        {streams.length > 0 && (
+          <div className="color-key" aria-label="Colour key">
+            {[...new Set(streams.map(x => x.brand))].map(b => (
+              <span key={b} className="key-brand" style={{ background: colors[b]?.bg, borderLeftColor: colors[b]?.edge }}>{b}</span>
+            ))}
+            <span className="key-sep" />
+            {[...new Set(streams.map(x => x.platform))].map(p => <PlatformTag key={p} platform={p} />)}
+          </div>
+        )}
         {view === 'calendar'
-          ? <MonthCalendar year={current.year} month={current.month} streams={streams} showHost={false}
+          ? <MonthCalendar year={current.year} month={current.month} streams={streams} showHost={false} colors={colors}
               saleDays={Object.fromEntries(sales.map(s => [s.day, s.name]))} />
-          : <StreamList streams={streams} />}
+          : <StreamList streams={streams} colors={colors} />}
       </div>
     ) : (
       <div className="card" data-tour="host-schedule">

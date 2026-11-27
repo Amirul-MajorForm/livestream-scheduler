@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { formatTime, fmtRange } from '@/lib/format';
 import type { Issue } from '@/lib/issues';
+import type { BrandColor } from '@/lib/colors';
+import PlatformTag from './PlatformTag';
 
 export interface CalStream {
   id: number;
@@ -17,13 +19,12 @@ export interface CalStream {
 }
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const PLATFORM_SHORT: Record<string, string> = { 'TikTok': 'TT', 'Shopee': 'SP', 'TikTok & Shopee': 'TT+SP' };
 
 /**
  * Month view (Monday first). Each stream shows time, brand, platform and host.
  * Hovering a stream shows its full details and any warnings (via the global TooltipLayer).
  */
-export default function MonthCalendar({ year, month, streams, saleDays, showHost = true, issues, hrefFor }: {
+export default function MonthCalendar({ year, month, streams, saleDays, showHost = true, issues, hrefFor, colors }: {
   year: number;
   month: number; // 0-based
   streams: CalStream[];
@@ -31,6 +32,8 @@ export default function MonthCalendar({ year, month, streams, saleDays, showHost
   showHost?: boolean;
   issues?: Map<number, Issue[]>;
   hrefFor?: (id: number) => string;
+  /** Colour each stream by brand (host view). */
+  colors?: Record<string, BrandColor>;
 }) {
   const days = new Date(year, month + 1, 0).getDate();
   const firstDow = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7; // Monday = 0
@@ -68,15 +71,17 @@ export default function MonthCalendar({ year, month, streams, saleDays, showHost
                     <>
                       {s.status === 'confirmed' && <span className="ck" title="Confirmed">{'\u2713'} </span>}
                       <span className="t">{formatTime(s.start_min)}</span> <strong>{s.brand}</strong>{' '}
-                      <span className="muted">{PLATFORM_SHORT[s.platform] || s.platform}</span>
+                      <PlatformTag platform={s.platform} short />
                       {showHost && <div className={s.host_name ? 'h' : 'h nohost'}>{s.host_name || 'No host'}</div>}
                       {!showHost && s.room && <div className="h">{s.room}</div>}
                       {list.length > 0 && <div className="warns">{list.map(x => x.tag).join(' · ')}</div>}
                     </>
                   );
+                  const c = colors?.[s.brand];
+                  const style = c && !list.length ? { background: c.bg, borderLeftColor: c.edge } : undefined;
                   return hrefFor
-                    ? <Link key={s.id} href={hrefFor(s.id)} className={cls} data-tip={tip}>{body}</Link>
-                    : <div key={s.id} className={cls} data-tip={tip} tabIndex={0}>{body}</div>;
+                    ? <Link key={s.id} href={hrefFor(s.id)} className={cls} data-tip={tip} style={style}>{body}</Link>
+                    : <div key={s.id} className={cls + (c ? ' branded' : '')} data-tip={tip} tabIndex={0} style={style}>{body}</div>;
                 })}
               </>
             )}
