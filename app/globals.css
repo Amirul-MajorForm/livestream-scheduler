@@ -569,3 +569,4 @@ tr.total-row td { background: var(--surface-alt); font-weight: 600; }
 .sales-scroll { max-height: calc(100vh - 250px); margin-bottom: 0; border-radius: var(--r-tile) var(--r-tile) 0 0; }
 .sales-scroll + .save-bar { border-top: 0; border-radius: 0 0 var(--r-tile) var(--r-tile); }
 @media (max-width: 768px) { .sales-scroll { max-height: calc(100vh - 160px); } }
+.rec-mark { display: inline-block; margin-left: 3px; font-size: 9px; font-weight: 700; color: var(--text-muted); vertical-align: super; }

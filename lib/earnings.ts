@@ -54,6 +54,7 @@ export interface FeeResult {
   agency: number | null;
   fee: number | null;    // talent fee
   reason?: string;       // why there's no fee
+  recorded?: boolean;    // fee as recorded in the imported sheet
 }
 
 export const streamTypeOf = (platform: string): 'single' | 'dual' => {
@@ -87,6 +88,27 @@ export function pickTier(group: Rate[], gmvPerHour: number): Rate | null {
 }
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
+
+/**
+ * The rate for a stream, honouring a version recorded for it (imported from the sheet): that
+ * version's rows are used whatever their dates; otherwise the normal date-based choice.
+ */
+export function rateGroupWithLabel(rates: Rate[], s: Pick<SaleInput, 'date' | 'brand' | 'period' | 'platform'>, label: string): Rate[] {
+  if (label) {
+    const g = rateGroupFor(rates.filter(r => r.label === label).map(r => ({ ...r, valid_from: null, valid_to: null, active: true })), s);
+    if (g.length) return g;
+  }
+  return rateGroupFor(rates, s);
+}
+
+/** Use the sheet's recorded fee (or its blank fee) in place of the calculated one (agency share follows the rate's %). */
+export function withRecordedFee(res: FeeResult, recordedFee: number | null, blank = false): FeeResult {
+  if (blank) return { ...res, fee: null, agency: null, gross: null, recorded: true, reason: 'No fee in the sheet' };
+  if (recordedFee == null) return res;
+  const a = res.rate?.agency_comms;
+  return { ...res, fee: recordedFee, agency: a != null && a < 1 ? round2(recordedFee * a / (1 - a)) : null,
+    gross: a != null && a < 1 ? round2(recordedFee / (1 - a)) : null, recorded: true, reason: undefined };
+}
 
 export function computeFee(group: Rate[], s: SaleInput): FeeResult {
   const hours = Math.max(0, s.end_min - s.start_min) / 60;

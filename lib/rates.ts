@@ -61,6 +61,7 @@ export async function readRatesWorkbook(buf: ArrayBuffer, appBrands: string[] = 
   const refWs = wb.worksheets.find(w => w.name.trim().toLowerCase() === 'reference');
   if (!refWs) throw new Error('No "Reference" tab found. Download the whole Master Availability Sheet as Excel (.xlsx) and upload that.');
   const verWs = wb.worksheets.find(w => w.name.trim().toLowerCase() === 'version');
+  if (!verWs) throw new Error('This file has no "Version" tab, which says from when each rate version applies. Upload the Master Availability Sheet (it has both the Reference and Version tabs).');
 
   const dates = new Map<string, { from: string | null; to: string | null }>();
   if (verWs) {

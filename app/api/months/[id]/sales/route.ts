@@ -17,14 +17,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!m) return new Response('Not found', { status: 404 });
   const { rows, orphans } = await loadMonthSales(m.id, m.published_run_id);
   const head = ['Date', 'Start Time', 'End Time', 'Host', 'Brand', 'Period', 'Platform', 'Status', 'TikTok GMV', 'Shopee GMV', 'Total GMV',
-    'Hours', 'GMV / Hour', 'Version', 'Method', 'Tier', 'Gross', 'Agency', 'Talent Fee', 'Payment', 'Notes', 'In published schedule'];
+    'Hours', 'GMV / Hour', 'Version', 'Method', 'Tier', 'Gross', 'Agency', 'Talent Fee', 'Fee source', 'Payment', 'Notes', 'In published schedule'];
   const lines = [head.join(',')];
   for (const r of [...rows, ...orphans]) {
-    const x = r.result, rate = x.rate, entered = r.tiktok_gmv != null || r.shopee_gmv != null;
+    const x = r.result, rate = x.rate, entered = r.tiktok_gmv != null || r.shopee_gmv != null || r.recorded_fee != null;
     lines.push([r.date, formatTime(r.start_min), formatTime(r.end_min), r.host_name, r.brand, r.period, r.platform, r.status,
       n2(r.tiktok_gmv), n2(r.shopee_gmv), entered ? n2(x.totalGmv) : '', x.hours, entered ? n2(x.gmvPerHour) : '',
-      rate?.label ?? 'No rate', rate ? (rate.method === 'split' ? 'Split comms' : 'Base + Comms') : '', rate?.tier ?? '',
-      entered ? n2(x.gross) : '', entered ? n2(x.agency) : '', entered ? n2(x.fee) : '', r.pay_status, r.notes, r.streamId ? 'Yes' : 'No',
+      rate?.label ?? (r.rate_label || 'No rate'), rate ? (rate.method === 'split' ? 'Split comms' : 'Base + Comms') : '', rate?.tier ?? r.tier_recorded,
+      entered ? n2(x.gross) : '', entered ? n2(x.agency) : '', entered ? n2(x.fee) : '', r.fee_blank && x.recorded ? 'Sheet (no fee)' : x.recorded ? 'Sheet' : entered && x.fee != null ? 'Calculated' : '', r.pay_status, r.notes, r.streamId ? 'Yes' : 'No',
     ].map(cell).join(','));
   }
   const name = `sales-${monthLabel(m.year, m.month).replace(/\s+/g, '-').toLowerCase()}.csv`;

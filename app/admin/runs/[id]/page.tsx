@@ -45,6 +45,15 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   const prefsByHost = new Map<number, Record<string, string>>();
   prefs.forEach(p => prefsByHost.set(p.host_id, { ...(prefsByHost.get(p.host_id) || {}), [p.brand]: p.level }));
   const issues = findIssues(streams as any, avail as any, hosts.map(h => ({ ...h, prefs: prefsByHost.get(h.id) || {} })) as any, await getRules());
+  // A version imported from the sheet is a record of what happened: there was no availability
+  // entered and the sheet has no studio rooms, so those two checks would only be noise.
+  const imported = !!(run.stats as { imported?: boolean } | null)?.imported;
+  if (imported) {
+    for (const [id, list] of issues) {
+      const kept = list.filter(x => x.tag !== 'Host not marked available' && x.tag !== 'No room');
+      if (kept.length) issues.set(id, kept); else issues.delete(id);
+    }
+  }
   const conflicts = issues;
 
   // Hours (sessions are 2-hour slots; scheduled hours use each stream's real length).
@@ -122,7 +131,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
       </div>
       <Flash sp={sp} />
       {published
-        ? <div className="notice info slim">This version is live: hosts see it, including any streams you confirm here. Use Duplicate to work on a draft copy.</div>
+        ? <div className="notice info slim">This version is live: hosts see it, including any streams you confirm here. Use Duplicate to work on a draft copy.{imported ? ' Imported from the sheet, so the availability and room checks are switched off.' : ''}</div>
         : <div className="notice warn slim">
             <strong>Draft: hosts can&rsquo;t see this version.</strong> Confirming streams here won&rsquo;t show on host pages until you click <em>Publish to hosts</em>.
             {m.published_run_id && <> The version hosts see now is <Link href={`/admin/runs/${m.published_run_id}`}>this one</Link>.</>}

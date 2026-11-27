@@ -149,7 +149,7 @@ export function matchBrand<B extends { name: string }>(text: string, brands: B[]
 }
 
 /** Host by exact name, else same words in any order ("Xin Hui (Felicia)" -> "Felicia Xin Hui"), else a unique short name ("Cassandra" -> "Cass"). */
-function matchHost<H extends { name: string }>(text: string, hosts: H[]): { host?: H; fuzzy: boolean } {
+export function matchHost<H extends { name: string }>(text: string, hosts: H[]): { host?: H; fuzzy: boolean } {
   const t = text.trim().toLowerCase();
   const exact = hosts.find(h => h.name.toLowerCase() === t);
   if (exact) return { host: exact, fuzzy: false };

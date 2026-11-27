@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { computeFee, money, pctLabel, PAY_STATUSES, type Rate } from '@/lib/earnings';
+import { computeFee, withRecordedFee, money, pctLabel, PAY_STATUSES, type Rate } from '@/lib/earnings';
 import { fmtRange } from '@/lib/format';
 import PlatformTag from './PlatformTag';
 
@@ -21,6 +21,11 @@ export interface SalesRowIn {
   pay: string;
   notes: string;
   group: Rate[];
+  /** Imported from the sheet: the fee it recorded, and its rate version / tier (used while the GMV is unchanged). */
+  recordedFee: number | null;
+  feeBlank: boolean;
+  recLabel: string;
+  recTier: string;
 }
 
 const toNum = (x: string) => { const t = x.replace(/[$,\s]/g, ''); return t === '' ? null : Number(t); };
@@ -40,16 +45,19 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
     const v = vals[r.id];
     const tt = toNum(v.tt), sp = toNum(v.sp);
     const bad = (tt != null && !(tt >= 0)) || (sp != null && !(sp >= 0));
-    return { r, v, bad, entered: tt != null || sp != null, res: bad ? null : computeFee(r.group, { ...r, tiktok_gmv: tt, shopee_gmv: sp }) };
+    const keepRecorded = (r.recordedFee != null || r.feeBlank) && v.tt === r.tt && v.sp === r.sp;
+    const res = bad ? null : computeFee(r.group, { ...r, tiktok_gmv: tt, shopee_gmv: sp });
+    return { r, v, bad, entered: tt != null || sp != null || keepRecorded, res: res && keepRecorded ? withRecordedFee(res, r.recordedFee, r.feeBlank) : res };
   }), [rows, vals]);
 
   const tot = calc.reduce((a, c) => {
     if (!c.res || !c.entered) return a;
     a.tt += toNum(c.v.tt) ?? 0; a.sp += toNum(c.v.sp) ?? 0; a.fee += c.res.fee ?? 0; a.agency += c.res.agency ?? 0; a.n++;
-    if (c.res.fee == null) a.noRate++;
+    if (c.res.fee != null && c.res.agency == null) a.agencyUnknown++;
+    if (c.res.fee == null && !c.res.recorded) a.noRate++;
     return a;
-  }, { tt: 0, sp: 0, fee: 0, agency: 0, n: 0, noRate: 0 });
-  const noRateRows = calc.filter(c => !c.r.group.length).length;
+  }, { tt: 0, sp: 0, fee: 0, agency: 0, n: 0, noRate: 0, agencyUnknown: 0 });
+  const noRateRows = calc.filter(c => !c.r.group.length && !c.res?.recorded).length;
 
   return (
     <form action={action} onSubmit={() => setDirty(false)}>
@@ -60,7 +68,8 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
         <div className="kpi"><div className="lab">TikTok GMV</div><div className="v">{money(tot.tt)}</div><div className="s">&nbsp;</div></div>
         <div className="kpi"><div className="lab">Shopee GMV</div><div className="v">{money(tot.sp)}</div><div className="s">&nbsp;</div></div>
         <div className="kpi" data-tip={'Talent fees:\nWhat the hosts are owed for the streams shown, after the agency share.'}><div className="lab">Talent fees</div><div className="v ok">{money(tot.fee)}</div><div className="s">for streams with figures</div></div>
-        <div className="kpi" data-tip={'Agency share:\nThe agency % taken off each host’s gross.'}><div className="lab">Agency share</div><div className="v">{money(tot.agency)}</div><div className="s">&nbsp;</div></div>
+        <div className="kpi" data-tip={'Agency share:\nThe agency % taken off each host’s gross.'}><div className="lab">Agency share</div><div className="v">{money(tot.agency)}</div>
+          <div className="s">{tot.agencyUnknown ? `${tot.agencyUnknown} stream${tot.agencyUnknown === 1 ? '' : 's'} not counted (rate not in Payment rates)` : '\u00a0'}</div></div>
         <div className="kpi" data-tip={'No rate:\nStreams with no matching payment rate (brand, period, platform, date). Add one under Payment rates.'}>
           <div className="lab">No rate</div><div className={'v' + (noRateRows ? ' bad' : '')}>{noRateRows}</div><div className="s">{noRateRows ? <a href="/admin/rates">add rates</a> : 'all streams covered'}</div>
         </div>
@@ -82,7 +91,10 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
               const hasTT = p.includes('tiktok'), hasSP = p.includes('shopee');
               const newDay = i > 0 && calc[i - 1].r.date !== r.date;
               const rate = res?.rate;
-              const tip = rate ? [
+              const tip = res?.recorded ? [
+                r.feeBlank ? 'The sheet has no fee for this stream (e.g. a creator deal).' : `Fee as recorded in the sheet${r.recLabel ? ' (' + r.recLabel + (r.recTier ? ' \u00b7 ' + r.recTier : '') + ')' : ''}.`,
+                'Change the GMV and it\u2019s worked out again from Payment rates.',
+              ].join('\n') : rate ? [
                 `${rate.label || 'Rate'}${rate.tier ? ' · ' + rate.tier : ''} (${rate.period})`,
                 rate.method === 'split'
                   ? `${pctLabel(rate.tiktok_comms)} of TikTok + ${pctLabel(rate.shopee_comms)} of Shopee`
@@ -108,7 +120,9 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
                   </td>
                   <td className="num">{entered && res ? money(res.totalGmv) : '—'}</td>
                   <td className="num">{entered && res?.gmvPerHour != null ? money(res.gmvPerHour) : '—'}</td>
-                  <td data-tip={tip}>{rate
+                  <td data-tip={tip}>{res?.recorded && (r.recLabel || !rate)
+                    ? <span className="rate-cell">{r.recTier ? <strong>{r.recTier}</strong> : null}{r.recTier && r.recLabel ? ' \u00b7 ' : ''}{r.recLabel || 'Sheet'}</span>
+                    : rate
                     ? <span className="rate-cell">{rate.tier ? <strong>{rate.tier}</strong> : null}{rate.tier && rate.label ? ' \u00b7 ' : ''}{rate.label}</span>
                     : <span className="badge bad tip">No rate</span>}</td>
                   <td className="num"><strong>{bad ? <span className="badge bad">Not a number</span> : entered ? money(res?.fee) : '—'}</strong></td>

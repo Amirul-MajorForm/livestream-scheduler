@@ -613,14 +613,20 @@ export async function saveSales(f: FormData) {
       const status = s(f, 'st_' + st.id), notes = s(f, 'nt_' + st.id).slice(0, 500);
       const keyArgs = [monthId, st.date, st.start_min, st.brand, st.platform, st.host_name || ''];
       if (tt == null && sp == null && !status && !notes) {
-        await c.query(`DELETE FROM stream_sales WHERE month_id = $1 AND date = $2 AND start_min = $3 AND brand = $4 AND platform = $5 AND host_name = $6`, keyArgs);
+        await c.query(`DELETE FROM stream_sales WHERE month_id = $1 AND date = $2 AND start_min = $3 AND brand = $4 AND platform = $5 AND host_name = $6
+          AND recorded_fee IS NULL AND NOT fee_blank`, keyArgs);
         continue;
       }
       await c.query(`INSERT INTO stream_sales (month_id, date, start_min, brand, platform, host_name, end_min, period, tiktok_gmv, shopee_gmv, pay_status, notes, updated_by)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         ON CONFLICT (month_id, date, start_min, brand, platform, host_name) DO UPDATE SET
           end_min = EXCLUDED.end_min, period = EXCLUDED.period, tiktok_gmv = EXCLUDED.tiktok_gmv, shopee_gmv = EXCLUDED.shopee_gmv,
-          pay_status = EXCLUDED.pay_status, notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+          pay_status = EXCLUDED.pay_status, notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now(),
+          -- a fee recorded by the sheet import stands until someone changes that stream's GMV
+          recorded_fee = CASE WHEN stream_sales.tiktok_gmv IS NOT DISTINCT FROM EXCLUDED.tiktok_gmv
+            AND stream_sales.shopee_gmv IS NOT DISTINCT FROM EXCLUDED.shopee_gmv THEN stream_sales.recorded_fee END,
+          fee_blank = stream_sales.fee_blank AND stream_sales.tiktok_gmv IS NOT DISTINCT FROM EXCLUDED.tiktok_gmv
+            AND stream_sales.shopee_gmv IS NOT DISTINCT FROM EXCLUDED.shopee_gmv`,
         [...keyArgs, st.end_min, st.period, tt, sp, status, notes, user.id]);
       saved++;
     }

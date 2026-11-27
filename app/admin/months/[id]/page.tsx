@@ -13,7 +13,7 @@ import PreplannedUpload from '@/components/PreplannedUpload';
 import { SelectAllBox, BulkButton } from '@/components/BulkSelect';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import SalesTable from '@/components/SalesTable';
-import { loadMonthSales, hasSales, type SaleRow } from '@/lib/salesData';
+import { loadMonthSales, hasSales, missingRate, type SaleRow } from '@/lib/salesData';
 import { money } from '@/lib/earnings';
 import {
   updateMonthRules, addSaleDay, deleteSaleDay, addCommitment, updateCommitmentQty, deleteCommitment,
@@ -559,7 +559,7 @@ async function SalesTab({ m, sp }: { m: MonthRow; sp: SP }) {
     a.streams++; a.hours += (r.end_min - r.start_min) / 60;
     if (hasSales(r)) {
       a.entered++; a.tt += r.tiktok_gmv ?? 0; a.sp += r.shopee_gmv ?? 0;
-      if (r.result.fee == null) a.noRate++; else { a.fee += r.result.fee; a.agency += r.result.agency ?? 0; }
+      if (missingRate(r)) a.noRate++; else if (r.result.fee != null) { a.fee += r.result.fee; a.agency += r.result.agency ?? 0; }
     }
     map.set(k, a);
   };
@@ -617,6 +617,7 @@ async function SalesTab({ m, sp }: { m: MonthRow; sp: SP }) {
           brand: r.brand, period: r.period, platform: r.platform, confirmed: r.status === 'confirmed',
           tt: r.tiktok_gmv == null ? '' : String(r.tiktok_gmv), sp: r.shopee_gmv == null ? '' : String(r.shopee_gmv),
           pay: r.pay_status, notes: r.notes, group: r.group,
+          recordedFee: r.recorded_fee, feeBlank: r.fee_blank, recLabel: r.rate_label, recTier: r.tier_recorded,
         }))} />
 
       <h2>Earnings by host</h2>
