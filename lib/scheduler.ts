@@ -60,6 +60,31 @@ export interface SchedulerPreplanned {
   source: string;
 }
 
+/**
+ * Adjustable planning rules (edited on the admin "Planning rules" page).
+ * ORIGINAL_RULES reproduces the Apps Script V7 behaviour exactly.
+ */
+export interface PlanningRules {
+  /** Same brand at the same time is fine when the platforms don't overlap (TikTok vs Shopee). */
+  sameBrandDifferentPlatformOk: boolean;
+  /** Most streams one host can do in a day. */
+  maxStreamsPerHostPerDay: number;
+  /** BAU streams on Fridays: 'avoid' (soft), 'never' (hard), 'allow'. */
+  fridayBau: 'avoid' | 'never' | 'allow';
+  /** Female hosts late: 'avoid-alone' (soft: avoid being the only stream from 6PM), 'never' (hard: no 10PM-12MN), 'allow'. */
+  lateFemale: 'avoid-alone' | 'never' | 'allow';
+  /** Pairs of brands that must not stream at the same time (e.g. space or product clashes). */
+  brandsApart: [string, string][];
+}
+
+export const ORIGINAL_RULES: PlanningRules = {
+  sameBrandDifferentPlatformOk: false,
+  maxStreamsPerHostPerDay: 2,
+  fridayBau: 'avoid',
+  lateFemale: 'avoid-alone',
+  brandsApart: [],
+};
+
 export interface SchedulerInput {
   year: number;
   /** 0-based month */
@@ -74,6 +99,8 @@ export interface SchedulerInput {
   commitments: SchedulerCommitment[];
   preplanned: SchedulerPreplanned[];
   trials?: number;
+  /** Defaults to ORIGINAL_RULES. */
+  rules?: Partial<PlanningRules>;
 }
 
 export interface ScheduledStream {
@@ -176,6 +203,18 @@ export function runScheduler(input: SchedulerInput): SchedulerResult {
   const slots = SLOTS;
   const startMins = START_MINS;
   const rooms = input.rooms.map(r => r.name);
+  const rules: PlanningRules = { ...ORIGINAL_RULES, ...(input.rules || {}) };
+  const maxPerDay = Math.max(1, rules.maxStreamsPerHostPerDay);
+  const apart = new Set(rules.brandsApart.flatMap(([a, b]) => [norm(a) + '|' + norm(b), norm(b) + '|' + norm(a)]));
+  /** Do two streams of these brands/platforms clash if they overlap in time? */
+  const brandConflict = (xBrand: string, xPlatform: string, pBrand: string, pPlatform: string) => {
+    if (norm(xBrand) === norm(pBrand)) {
+      if (!rules.sameBrandDifferentPlatformOk) return true;
+      const a = parsePlatforms(xPlatform), b = parsePlatforms(pPlatform);
+      return !a || !b || [...a].some(x => b.has(x));
+    }
+    return apart.size > 0 && apart.has(norm(xBrand) + '|' + norm(pBrand));
+  };
   const warnings: string[] = [];
   const errors: string[] = [];
 
@@ -374,9 +413,11 @@ export function runScheduler(input: SchedulerInput): SchedulerResult {
     if (!(available[key(p.day, p.slot)] || new Set()).has(p.host)) return false;
     if (get(st.byHost, p.host) >= caps[p.host]) return false;
     if (get(st.byHostBrand, key(p.host, norm(p.brand))) >= brandCapCount(p.host, p.brand)) return false;
-    if ((st.byHostDay.get(hostDayKey(p.host, p.day)) || []).length >= 2) return false;
+    if ((st.byHostDay.get(hostDayKey(p.host, p.day)) || []).length >= maxPerDay) return false;
+    if (rules.fridayBau === 'never' && grid[cell(p.day, Math.max(0, p.slot))].friday && grid[cell(p.day, Math.max(0, p.slot))].period === 'bau') return false;
+    if (rules.lateFemale === 'never' && p.slot === 6 && gender[p.host] === 'female') return false;
     if (sameDay(st, p.day).some(x => overlap(x, p) &&
-      (x.host === p.host || (x.room && x.room === p.room) || norm(x.brand) === norm(p.brand)))) return false;
+      (x.host === p.host || (x.room && x.room === p.room) || brandConflict(x.brand, x.platform, p.brand, p.platform)))) return false;
     return true;
   };
 
@@ -417,7 +458,7 @@ export function runScheduler(input: SchedulerInput): SchedulerResult {
         preplanned.filter(x => norm(x.brand) === norm(p.brand)).length);
       if (get(lockedState.byHostBrand, key(h, norm(p.brand))) >= brandCap) return;
       const daily = lockedState.byHostDay.get(hostDayKey(h, p.day)) || [];
-      if (daily.length >= 2 || lockedState.items.some(x => x.host === h && overlap(x, p))) return;
+      if (daily.length >= maxPerDay || lockedState.items.some(x => x.host === h && overlap(x, p))) return;
       const opts = roomOptions(lockedState, p, h);
       if (!opts.length) return;
       const adjacent = daily.some(x => interval(x).end === p.start || interval(x).start === p.end);
@@ -494,12 +535,12 @@ export function runScheduler(input: SchedulerInput): SchedulerResult {
     else if (dateGap === 1) v -= 50;
     else if (dateGap === 2) v -= 20;
     v -= dayLoads * 8;
-    if (g.friday && g.period === 'bau') v -= 130;
+    if (rules.fridayBau === 'avoid' && g.friday && g.period === 'bau') v -= 130;
     if (roomStatus[norm(p.room)] === 'last resort') v -= 95;
     const dayLimit = pctLimits[c.period][g.weekend ? 1 : 0];
     const dayCount = existingBrand.filter(x => x.slot < 5 && gridAt(x.day, x.slot).weekend === g.weekend).length;
     if (p.slot < 5 && dayCount + 1 > Math.ceil(c.qty * dayLimit)) v -= 80;
-    if (['6PM-8PM', '8PM-10PM', '10PM-12MN'].includes(slots[p.slot]) && gender[p.host] === 'female' &&
+    if (rules.lateFemale === 'avoid-alone' && ['6PM-8PM', '8PM-10PM', '10PM-12MN'].includes(slots[p.slot]) && gender[p.host] === 'female' &&
       !sameDay(st, p.day).some(x => x.slot === p.slot)) v -= 90;
     // Deterministic seeded tie-breaker varies by run.
     const z = (p.day * 1013 + p.slot * 131 + p.room.length * 47 + p.host.length * 29 + c.id * 37 + run * 8191) >>> 0;
@@ -518,14 +559,16 @@ export function runScheduler(input: SchedulerInput): SchedulerResult {
       // Items overlapping this grid cell; room-independent checks are hoisted out of the
       // room loop. Same checks as validate(), so the candidate list is unchanged.
       const overlapping = todays.filter(x => overlap(x, probe));
-      const brandClash = overlapping.some(x => norm(x.brand) === brandNorm);
+      const brandClash = overlapping.some(x => brandConflict(x.brand, x.platform, c.brand, c.platform));
       if (brandClash) continue;
+      if (rules.fridayBau === 'never' && g.friday && g.period === 'bau') continue;
       for (const host of hs) {
         if (!eligible(host, c.brand, c.platform)) continue;
         if (!hosts.includes(host)) continue;
         if (get(st.byHost, host) >= caps[host]) continue;
         if (get(st.byHostBrand, key(host, brandNorm)) >= brandCapCount(host, c.brand)) continue;
-        if ((st.byHostDay.get(hostDayKey(host, g.day)) || []).length >= 2) continue;
+        if ((st.byHostDay.get(hostDayKey(host, g.day)) || []).length >= maxPerDay) continue;
+        if (rules.lateFemale === 'never' && g.slot === 6 && gender[host] === 'female') continue;
         if (overlapping.some(x => x.host === host)) continue;
         for (const room of rooms) {
           if (!roomAllowed(room) || !canUseRoom(host, room)) continue;
@@ -662,16 +705,16 @@ export function runScheduler(input: SchedulerInput): SchedulerResult {
     for (const { g, h } of availablePairs) {
       if (get(finalState.byHost, h) >= caps[h]) { counts.monthly++; continue; }
       if (get(finalState.byHostBrand, key(h, norm(c.brand))) >= brandCapCount(h, c.brand)) { counts.brand++; continue; }
-      if ((finalState.byHostDay.get(hostDayKey(h, g.day)) || []).length >= 2) { counts.daily++; continue; }
+      if ((finalState.byHostDay.get(hostDayKey(h, g.day)) || []).length >= maxPerDay) { counts.daily++; continue; }
       const p = { day: g.day, slot: g.slot };
       if (finalState.items.some(x => x.host === h && overlap(x, p))) { counts.hostOverlap++; continue; }
-      if (finalState.items.some(x => norm(x.brand) === norm(c.brand) && overlap(x, p))) { counts.brandOverlap++; continue; }
+      if (finalState.items.some(x => brandConflict(x.brand, x.platform, c.brand, c.platform) && overlap(x, p))) { counts.brandOverlap++; continue; }
       const freeRooms = rooms.filter(r => roomAllowed(r) && canUseRoom(h, r) && !finalState.items.some(x => x.room === r && overlap(x, p)));
       if (!freeRooms.length) { counts.room++; continue; }
       counts.feasible++;
     }
     if (counts.feasible) return 'ALLOCATION OPPORTUNITY: ' + counts.feasible + ' feasible host/time combinations remain; optimizer did not fill';
-    const names: Record<string, string> = { monthly: 'monthly host caps', brand: 'host brand-share caps', daily: 'two-stream daily caps', hostOverlap: 'host time conflicts', room: 'room capacity/permissions', brandOverlap: 'same-brand time conflicts' };
+    const names: Record<string, string> = { monthly: 'monthly host caps', brand: 'host brand-share caps', daily: 'daily stream caps', hostOverlap: 'host time conflicts', room: 'room capacity/permissions', brandOverlap: 'brand time conflicts' };
     const ranked = Object.keys(names).filter(k => counts[k] > 0).sort((a, b) => counts[b] - counts[a]);
     return 'Blocked in current schedule: ' + ranked.slice(0, 3).map(k => names[k] + ' (' + counts[k] + ')').join('; ') + '. Reassignment may help';
   };

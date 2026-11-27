@@ -2,6 +2,7 @@ import 'server-only';
 import { query, one, tx } from './db';
 import { runScheduler, formatTime, MONTH_NAMES, type SchedulerInput, type PrefLevel, type RoomStatus } from './scheduler';
 import { isoDate, type Dataset } from './workbook';
+import { getRules } from './settings';
 
 export function monthLabel(year: number, month: number) {
   return MONTH_NAMES[month] + ' ' + year;
@@ -60,7 +61,9 @@ export async function loadSchedulerInput(monthId: number): Promise<SchedulerInpu
     prefsByHost.get(p.host_id)![p.brand] = p.level;
   });
 
+  const rules = await getRules();
   return {
+    rules,
     year: m.year,
     month: m.month,
     pct: { bauWeekday: m.bau_weekday_pct, bauWeekend: m.bau_weekend_pct, megaWeekday: m.mega_weekday_pct, megaWeekend: m.mega_weekend_pct },

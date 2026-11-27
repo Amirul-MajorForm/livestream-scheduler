@@ -43,7 +43,7 @@ const ADMIN_STEPS: Step[] = [
   { on: l => l.pathname === '/admin', go: () => '/admin', target: 'title', title: 'Welcome',
     body: 'This tour walks you through the app in the order you’ll use it each month. Use Next and Back, or close it any time with ×. You can restart it from the Tour button at the top.' },
   { on: l => l.pathname.startsWith('/admin'), go: () => '/admin', target: 'nav', title: 'The main menu',
-    body: 'Months: plan each month. Hosts: people, caps and brands. Brands, rooms & team: the lists the app uses and ops logins. Import: bring in the Google Sheet (one time).' },
+    body: 'Months: plan each month. Hosts: people, caps and brands. Brands, rooms & team: the lists the app uses and ops logins. Planning rules: what the scheduler follows, and the rules you can adjust. Import: bring in the Google Sheet (one time).' },
   { on: l => l.pathname === '/admin/hosts', go: () => '/admin/hosts', target: 'hosts-table', title: 'Hosts',
     body: 'Each host’s monthly cap, max % of any one brand, platforms, and which brands they can do (P = Preferred, R = Regular, blank = never). Click a column heading to sort.' },
   { on: l => l.pathname === '/admin/hosts', go: () => '/admin/hosts', target: 'hosts-first', title: 'Edit a host and give them a login',

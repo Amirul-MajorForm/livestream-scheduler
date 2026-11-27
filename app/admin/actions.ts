@@ -449,3 +449,50 @@ export async function importWorkbook(f: FormData) {
   }
   back(`/admin/months/${result.monthId}`, 'Imported: ' + result.log.join('; ') + (warnings.length ? '. Warnings: ' + warnings.join(' ') : ''));
 }
+
+/* ---------------- Planning rules ---------------- */
+
+export async function saveRulesAction(f: FormData) {
+  const user = await requireAdmin();
+  const { getRules, saveRules } = await import('@/lib/settings');
+  const current = await getRules();
+  const maxPerDay = Number(s(f, 'maxStreamsPerHostPerDay'));
+  const fridayBau = s(f, 'fridayBau'), lateFemale = s(f, 'lateFemale');
+  if (!Number.isInteger(maxPerDay) || maxPerDay < 1 || maxPerDay > 6) back('/admin/rules', 'Max streams per host per day must be 1 to 6', 'bad');
+  if (!['avoid', 'never', 'allow'].includes(fridayBau) || !['avoid-alone', 'never', 'allow'].includes(lateFemale)) back('/admin/rules', 'Unknown option', 'bad');
+  await saveRules({
+    ...current,
+    sameBrandDifferentPlatformOk: s(f, 'sameBrandDifferentPlatformOk') === 'yes',
+    maxStreamsPerHostPerDay: maxPerDay,
+    fridayBau: fridayBau as 'avoid' | 'never' | 'allow',
+    lateFemale: lateFemale as 'avoid-alone' | 'never' | 'allow',
+  }, user.id);
+  back('/admin/rules', 'Rules saved. They apply the next time you run the scheduler.');
+}
+
+export async function addBrandPair(f: FormData) {
+  const user = await requireAdmin();
+  const { getRules, saveRules } = await import('@/lib/settings');
+  const a = s(f, 'a'), b = s(f, 'b');
+  if (!a || !b || a.toLowerCase() === b.toLowerCase()) back('/admin/rules', 'Pick two different brands', 'bad');
+  const r = await getRules();
+  const exists = r.brandsApart.some(([x, y]) => [x, y].map(v => v.toLowerCase()).sort().join('|') === [a, b].map(v => v.toLowerCase()).sort().join('|'));
+  if (!exists) await saveRules({ ...r, brandsApart: [...r.brandsApart, [a, b]] }, user.id);
+  back('/admin/rules', `${a} and ${b} will not be scheduled at the same time.`);
+}
+
+export async function removeBrandPair(f: FormData) {
+  const user = await requireAdmin();
+  const { getRules, saveRules } = await import('@/lib/settings');
+  const r = await getRules();
+  const i = n(f, 'index');
+  await saveRules({ ...r, brandsApart: r.brandsApart.filter((_, j) => j !== i) }, user.id);
+  back('/admin/rules', 'Brand pair removed');
+}
+
+export async function savePlannerNotes(f: FormData) {
+  const user = await requireAdmin();
+  const { saveSetting } = await import('@/lib/settings');
+  await saveSetting('planner_notes', String(f.get('notes') ?? '').slice(0, 20000), user.id);
+  back('/admin/rules', 'Notes saved');
+}

@@ -34,7 +34,15 @@ const overlaps = (a: IssueStream, b: IssueStream) => a.date === b.date && a.star
 const desc = (o: IssueStream) => `${o.brand} (${o.platform}) ${fmtRange(o.start_min, o.end_min)}`;
 
 /** Works out every warning for every stream in a schedule version, with a human explanation. */
-export function findIssues(streams: IssueStream[], availability: { host_id: number; date: string; hour: number }[], hosts: IssueHost[]) {
+export function findIssues(streams: IssueStream[], availability: { host_id: number; date: string; hour: number }[], hosts: IssueHost[],
+  rules: { sameBrandDifferentPlatformOk: boolean; brandsApart: [string, string][] } = { sameBrandDifferentPlatformOk: false, brandsApart: [] }) {
+  const apart = new Set(rules.brandsApart.flatMap(([a, b]) => [a.toLowerCase() + '|' + b.toLowerCase(), b.toLowerCase() + '|' + a.toLowerCase()]));
+  const sameBrandClash = (a: IssueStream, b: IssueStream) => {
+    if (a.brand.toLowerCase() !== b.brand.toLowerCase()) return false;
+    if (!rules.sameBrandDifferentPlatformOk) return true;
+    const x = parsePlatforms(a.platform), y = parsePlatforms(b.platform);
+    return !x || !y || [...x].some(p => y.has(p));
+  };
   // Availability is hourly; a stream needs every hour it covers ticked.
   const avail = new Set(availability.map(a => a.host_id + '|' + a.date + '|' + a.hour));
   const hoursTicked = (hid: number, date: string) => [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].filter(h => avail.has(hid + '|' + date + '|' + h));
@@ -54,9 +62,13 @@ export function findIssues(streams: IssueStream[], availability: { host_id: numb
     if (sameRoom.length) list.push({ tag: 'Room clash', severity: 'warn',
       detail: `${s.room} is also used by ${sameRoom.map(o => desc(o) + ' with ' + (o.host_name || 'no host')).join('; ')}. Move one to another room.` });
 
-    const sameBrand = others.filter(o => o.brand.toLowerCase() === s.brand.toLowerCase());
+    const sameBrand = others.filter(o => sameBrandClash(o, s));
     if (sameBrand.length) list.push({ tag: 'Same brand at the same time', severity: 'warn',
-      detail: `${s.brand} also streams ${sameBrand.map(o => o.platform + ' ' + fmtRange(o.start_min, o.end_min) + ' with ' + (o.host_name || 'no host')).join('; ')}.` });
+      detail: `${s.brand} also streams ${sameBrand.map(o => o.platform + ' ' + fmtRange(o.start_min, o.end_min) + ' with ' + (o.host_name || 'no host')).join('; ')}` +
+        (rules.sameBrandDifferentPlatformOk ? ' on the same platform.' : '.') });
+    const pairClash = apart.size ? others.filter(o => apart.has(o.brand.toLowerCase() + '|' + s.brand.toLowerCase())) : [];
+    if (pairClash.length) list.push({ tag: 'Brands kept apart', severity: 'warn',
+      detail: `${s.brand} must not stream at the same time as ${pairClash.map(o => o.brand + ' (' + fmtRange(o.start_min, o.end_min) + ')').join(', ')} (Planning rules).` });
 
     if (s.host_id) {
       const missing = hoursCovered(s.start_min, s.end_min).filter(h => !avail.has(s.host_id + '|' + s.date + '|' + h));

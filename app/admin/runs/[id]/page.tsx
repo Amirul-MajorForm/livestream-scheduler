@@ -11,6 +11,7 @@ import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import MonthCalendar, { type CalStream } from '@/components/MonthCalendar';
 import FlagLegend, { FLAG_HELP, SHORT_TAG } from '@/components/FlagLegend';
 import { findIssues } from '@/lib/issues';
+import { getRules } from '@/lib/settings';
 import { brandStats, SESSION_HOURS } from '@/lib/brandStats';
 import { publishRun, unpublishMonth, deleteRun, renameRun, duplicateRun, updateStream, deleteStream, addStream, setStreamStatus, setManyStatus } from '../../actions';
 
@@ -43,7 +44,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
   // Warnings with explanations (re-checked on every page load, so they reflect manual edits).
   const prefsByHost = new Map<number, Record<string, string>>();
   prefs.forEach(p => prefsByHost.set(p.host_id, { ...(prefsByHost.get(p.host_id) || {}), [p.brand]: p.level }));
-  const issues = findIssues(streams as any, avail as any, hosts.map(h => ({ ...h, prefs: prefsByHost.get(h.id) || {} })) as any);
+  const issues = findIssues(streams as any, avail as any, hosts.map(h => ({ ...h, prefs: prefsByHost.get(h.id) || {} })) as any, await getRules());
   const conflicts = issues;
 
   // Hours (sessions are 2-hour slots; scheduled hours use each stream's real length).

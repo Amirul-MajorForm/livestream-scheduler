@@ -149,3 +149,52 @@ test('deterministic: same input gives the same schedule', () => {
   const input = base({ commitments: [{ id: 0, brand: 'Alpha', period: 'bau', sale: '-', platform: 'TikTok', qty: 8, priority: 1 }] });
   assert.deepEqual(runScheduler(input).streams, runScheduler(input).streams);
 });
+
+test('rules: same brand on different platforms can run together when allowed', () => {
+  const input = base({
+    // Only 5 evenings, 2 hosts: 10 streams fit only if TikTok and Shopee run side by side.
+    hosts: [host('Ann'), host('Bea')],
+    availability: [...everyDay('Ann', 5, [5]), ...everyDay('Bea', 5, [5])],
+    commitments: [
+      { id: 0, brand: 'Alpha', period: 'bau', sale: '-', platform: 'TikTok', qty: 5, priority: 1 },
+      { id: 1, brand: 'Alpha', period: 'bau', sale: '-', platform: 'Shopee', qty: 5, priority: 1 },
+    ],
+  });
+  const sameTime = (r: ReturnType<typeof runScheduler>) => r.streams.filter(a => r.streams.some(b => b !== a && b.day === a.day && b.start === a.start)).length;
+  assert.equal(sameTime(runScheduler(input)), 0); // original rule: never together
+  const r = runScheduler({ ...input, rules: { sameBrandDifferentPlatformOk: true } });
+  assert.ok(sameTime(r) > 0);
+  assert.equal(runScheduler(input).stats.fulfilled, 5);
+  assert.equal(r.stats.fulfilled, 10);
+  // ...but never two streams of the brand on the same platform at once
+  for (const a of r.streams) for (const b of r.streams)
+    if (a !== b && a.day === b.day && a.start === b.start) assert.notEqual(a.platform, b.platform);
+});
+
+test('rules: brands kept apart never overlap', () => {
+  const input = base({
+    commitments: [
+      { id: 0, brand: 'Alpha', period: 'bau', sale: '-', platform: 'TikTok', qty: 20, priority: 1 },
+      { id: 1, brand: 'Beta', period: 'bau', sale: '-', platform: 'Shopee', qty: 20, priority: 1 },
+    ],
+    availability: [...everyDay('Ann', 31, [5]), ...everyDay('Bea', 31, [5])],
+    rules: { brandsApart: [['Alpha', 'Beta']] },
+  });
+  const r = runScheduler(input);
+  for (const a of r.streams) for (const b of r.streams)
+    if (a !== b && a.day === b.day && a.start === b.start) assert.equal(a.brand, b.brand);
+});
+
+test('rules: max per day, Friday never, no female 10PM-12MN', () => {
+  const r = runScheduler(base({
+    hosts: [host('Ann', { maxStreamsMonth: 40 })],
+    availability: everyDay('Ann', 31),
+    commitments: [{ id: 0, brand: 'Alpha', period: 'bau', sale: '-', platform: 'TikTok', qty: 40, priority: 1 }],
+    rules: { maxStreamsPerHostPerDay: 1, fridayBau: 'never', lateFemale: 'never' },
+  }));
+  const perDay = new Map<number, number>();
+  r.streams.forEach(s => perDay.set(s.day, (perDay.get(s.day) || 0) + 1));
+  assert.ok([...perDay.values()].every(n => n <= 1));
+  assert.ok(r.streams.every(s => new Date(2026, 11, s.day).getDay() !== 5 || s.period === 'MEGA'));
+  assert.ok(r.streams.every(s => s.start !== 22 * 60));
+});
