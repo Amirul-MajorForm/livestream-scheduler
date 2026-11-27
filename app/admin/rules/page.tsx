@@ -7,7 +7,9 @@ import { ORIGINAL_RULES } from '@/lib/scheduler';
 import { fmtDateTime } from '@/lib/format';
 import Flash from '@/components/Flash';
 import ConfirmButton from '@/components/ConfirmButton';
-import { saveRulesAction, addBrandPair, removeBrandPair, savePlannerNotes } from '../actions';
+import { saveRulesAction, addBrandPair, removeBrandPair, savePlannerNotes, savePlanningDoc } from '../actions';
+import PlanningDoc from '@/components/PlanningDoc';
+import { generatePlanningDoc } from '@/lib/planningDoc';
 
 const FRIDAY = { avoid: 'Avoid (only if nothing better)', never: 'Never on Fridays', allow: 'No preference' } as const;
 const LATE = {
@@ -18,12 +20,13 @@ const LATE = {
 
 export default async function RulesPage({ searchParams }: { searchParams: Promise<{ ok?: string; bad?: string }> }) {
   const sp = await searchParams;
-  const [rules, notes, brands, rooms, saved] = await Promise.all([
+  const [rules, notes, brands, rooms, saved, doc] = await Promise.all([
     getRules(),
     getSetting<string>('planner_notes', ''),
     query('SELECT name FROM brands ORDER BY name'),
     query('SELECT name, status FROM rooms ORDER BY sort_order, id'),
     getSetting('planning_rules', null),
+    getSetting<string | null>('planning_doc', null),
   ]);
   let script = '';
   try { script = readFileSync(join(process.cwd(), 'docs', 'apps-script-v7.js'), 'utf8'); } catch { /* not deployed */ }
@@ -104,55 +107,11 @@ export default async function RulesPage({ searchParams }: { searchParams: Promis
         </div>
       </div>
 
-      <div className="card rules-doc">
-        <h2 style={{ marginTop: 0 }}>How the scheduler plans a month</h2>
-        <p className="small muted">This reflects the current settings. The logic comes from the original Apps Script (V7); the app reproduces it row for row when the rules are set to the original values.</p>
-        <h3>1. Fixed bookings go in first</h3>
-        <ul>
-          <li>Confirmed streams from the published version, then the month&rsquo;s pre-planned streams, are locked in exactly as entered, even if they break a rule below (the schedule flags it).</li>
-          <li>Pre-planned streams without a host get the best eligible, available host who still has room under their caps. If nobody qualifies they stay &ldquo;No host&rdquo; and still hold a room.</li>
-          <li>Each locked stream counts toward a matching commitment (same brand, BAU/Mega, platform and sale); extras are kept but don&rsquo;t count.</li>
-        </ul>
-        <h3>2. Hard rules (never broken by the scheduler)</h3>
-        <ul>
-          <li><strong>Brand:</strong> the host has the brand as Preferred or Regular. Excluded or blank means never.</li>
-          <li><strong>Platform:</strong> the host is set up for the stream&rsquo;s platform; &ldquo;TikTok &amp; Shopee&rdquo; is one stream on both, so the host needs both.</li>
-          <li><strong>Availability:</strong> the host ticked both hours of the 2-hour block.</li>
-          <li><strong>Caps:</strong> the host&rsquo;s monthly maximum, their maximum share of any one brand&rsquo;s sessions (max % per brand), and at most <strong>{rules.maxStreamsPerHostPerDay}</strong> stream{rules.maxStreamsPerHostPerDay === 1 ? '' : 's'} a day.</li>
-          <li><strong>No double-booking:</strong> a host and a room each do one stream at a time.</li>
-          <li><strong>Brand clashes:</strong> {rules.sameBrandDifferentPlatformOk
-            ? 'the same brand can’t stream twice at the same time on the same platform (different platforms are fine)'
-            : 'the same brand can’t stream twice at the same time, on any platform'}{rules.brandsApart.length ? <>; and {rules.brandsApart.map(([a, b]) => `${a} with ${b}`).join(', ')} never overlap</> : ''}.</li>
-          <li><strong>Rooms:</strong> one stream per room at a time. Rooms in use: {usable.map(r => r.name + (r.status === 'last resort' ? ' (last resort)' : '')).join(', ')}, so up to {usable.length} streams at once. Hosts limited to certain rooms (set on their page) only use those.</li>
-          {rules.fridayBau === 'never' && <li><strong>Fridays:</strong> no BAU streams.</li>}
-          {rules.lateFemale === 'never' && <li><strong>Late slots:</strong> no female hosts 10PM&ndash;12MN.</li>}
-          <li><strong>Days:</strong> BAU commitments only on BAU days; Mega commitments only on the sale days they list (from the month&rsquo;s sale days).</li>
-        </ul>
-        <h3>3. Order of work</h3>
-        <ul>
-          <li>Commitments with the fewest possible host/time options go first; Mega before BAU on ties, then by priority (1 = highest).</li>
-          <li>Up to 16 passes with different tie-breaks, plus a repair step that moves one stream to make room for a stuck commitment. The pass that fills the most commitments wins; among equals, the one that best follows the preferences below.</li>
-        </ul>
-        <h3>4. Preferences (soft: followed when possible)</h3>
-        <ul>
-          <li>Preferred hosts over Regular ones; spread work across hosts and spread each host across brands.</li>
-          <li>One stream per host per day; if two, back-to-back rather than with a gap; avoid giving the same host many double days.</li>
-          <li>Spread each commitment across the month: avoid the same week and neighbouring days.</li>
-          <li>Time of day: 8PM&ndash;10PM is favoured most, then 6PM&ndash;8PM, 12PM&ndash;2PM, 4PM&ndash;6PM, 2PM&ndash;4PM, 10AM&ndash;12PM; 10PM&ndash;12MN least.</li>
-          <li>Daytime limits per month (Rules &amp; sale days tab): once a commitment has used its weekday/weekend daytime share (before 8PM), later sessions lean to evenings.</li>
-          <li>&ldquo;Last resort&rdquo; rooms only when others are taken; quieter days preferred over busy ones.</li>
-          {rules.fridayBau === 'avoid' && <li>Avoid BAU streams on Fridays.</li>}
-          {rules.lateFemale === 'avoid-alone' && <li>Avoid a female host being the only stream in a slot from 6PM.</li>}
-        </ul>
-        <h3>Not built in yet (from your notes)</h3>
-        <ul className="muted">
-          <li>Hosts who shouldn&rsquo;t do double-digit sale days two months running.</li>
-          <li>Host-pair rules such as &ldquo;if Zul and Ler stream together, nothing else at the same time&rdquo;.</li>
-          <li>Per-host brand limits like &ldquo;Clarice: no Oatside twice in one week&rdquo;.</li>
-          <li>Off-site streams that block the host but not a studio room.</li>
-        </ul>
-        <p className="small muted" style={{ marginBottom: 0 }}>Add requests like these to the notes below so they can be built into the scheduler.</p>
-      </div>
+      <PlanningDoc
+        text={doc.value ?? generatePlanningDoc(rules, rooms as { name: string; status: string }[])}
+        custom={doc.value != null}
+        editedNote={doc.updatedAt ? fmtDateTime(doc.updatedAt) + (doc.updatedBy ? ' by ' + doc.updatedBy : '') : null}
+        action={savePlanningDoc} />
 
       <form action={savePlannerNotes} className="card">
         <h2 style={{ marginTop: 0 }}>Planner notes &amp; rule changes</h2>

@@ -490,6 +490,18 @@ export async function removeBrandPair(f: FormData) {
   back('/admin/rules', 'Brand pair removed');
 }
 
+export async function savePlanningDoc(f: FormData) {
+  const user = await requireAdmin();
+  const { saveSetting } = await import('@/lib/settings');
+  if (f.get('op') === 'reset') {
+    await saveSetting('planning_doc', null, user.id);
+    back('/admin/rules', 'Description reset to the generated version');
+  }
+  const doc = String(f.get('doc') ?? '').slice(0, 50000);
+  await saveSetting('planning_doc', doc.trim() ? doc : null, user.id);
+  back('/admin/rules', 'Description saved');
+}
+
 export async function savePlannerNotes(f: FormData) {
   const user = await requireAdmin();
   const { saveSetting } = await import('@/lib/settings');

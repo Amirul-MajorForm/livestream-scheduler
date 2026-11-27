@@ -130,27 +130,33 @@ export default async function RunPage({ params, searchParams }: { params: Promis
 
       <div className="kpis" data-tour="run-stats">
         <div className="kpi" data-tip={'Committed hours:\nAll sessions on the Commitments tab for this month, at 2 hours each.'}>
-          <div className="v">{hrs(H(totC))} h <small>committed</small></div>
+          <div className="lab">Committed</div>
+          <div className="v">{hrs(H(totC))} h</div>
           <div className="s">BAU {hrs(H(tot.bauC))} &middot; Mega {hrs(H(tot.megaC))} &middot; {totC} sessions</div>
         </div>
         <div className="kpi" data-tip={'Fulfilled hours:\nCommitted sessions covered by a stream with a host in this version. Updates when you edit streams.'}>
-          <div className="v ok">{hrs(H(totF))} h <small>fulfilled &middot; {pctOf(totF, totC)}%</small></div>
+          <div className="lab">Fulfilled</div>
+          <div className="v ok">{hrs(H(totF))} h <small>{pctOf(totF, totC)}%</small></div>
           <div className="s">BAU {hrs(H(tot.bauF))}/{hrs(H(tot.bauC))} &middot; Mega {hrs(H(tot.megaF))}/{hrs(H(tot.megaC))}</div>
         </div>
         <Link className="kpi" href={`${base}?view=summary`} data-tip={'Not fulfilled:\nCommitted hours with no stream yet. Click for the scheduler\u2019s reason for each one.'}>
-          <div className={'v' + (totShort ? ' bad' : '')}>{hrs(H(totShort))} h <small>short</small></div>
+          <div className="lab">Not fulfilled</div>
+          <div className={'v' + (totShort ? ' bad' : '')}>{hrs(H(totShort))} h</div>
           <div className="s">BAU {hrs(H(tot.bauC - tot.bauF))} &middot; Mega {hrs(H(tot.megaC - tot.megaF))} &middot; see why</div>
         </Link>
         <Link className="kpi" href={qs({ show: 'confirmed', view: listView })} data-tip={'Scheduled and confirmed:\nAll streams in this version (actual lengths), and how many you have confirmed. Click to list the confirmed ones.'}>
-          <div className="v">{hrs(scheduledHours)} h <small>scheduled</small></div>
+          <div className="lab">Scheduled</div>
+          <div className="v">{hrs(scheduledHours)} h</div>
           <div className="s">{streams.length} streams &middot; <span className="okt">{confirmedCount} confirmed ({hrs(confirmedHours)} h)</span></div>
         </Link>
         <Link className="kpi" href={qs({ show: 'nohost', view: listView })} data-tip={'Streams without a host:\n' + FLAG_HELP['No host'] + '\nClick to list them, then hover the red tag for the reason.'}>
-          <div className={'v' + (noHost ? ' bad' : '')}>{noHost} <small>no host</small></div>
+          <div className="lab">No host</div>
+          <div className={'v' + (noHost ? ' bad' : '')}>{noHost}</div>
           <div className="s">{hrs(shownHours(streams.filter(x => !x.host_name)))} h</div>
         </Link>
         <Link className="kpi" href={qs({ show: 'flagged', view: listView })} data-tip={'Streams with warnings:\nStreams with an amber or red tag. Hover any tag to see exactly what is wrong. Warnings never block publishing.'}>
-          <div className={'v' + (conflicts.size ? ' warn' : '')}>{conflicts.size} <small>warnings</small></div>
+          <div className="lab">Warnings</div>
+          <div className={'v' + (conflicts.size ? ' warn' : '')}>{conflicts.size}</div>
           <div className="s">click to list</div>
         </Link>
       </div>

@@ -1,20 +1,23 @@
 /**
  * Brand colours for calendars. Assigned by the brand's position in the Brands list (stable month to
- * month), from a palette of distinct, readable tints with a stronger edge colour.
+ * month), from a palette of distinct edge colours, each with a matching tint for the background.
  */
+/** Light tint of the edge colour on the page surface: pastel in light mode, a deep wash in dark mode. */
+const tint = (edge: string) => ({ bg: `color-mix(in srgb, ${edge} 15%, var(--surface))`, edge });
+
 export const BRAND_PALETTE = [
-  { bg: '#e8f0fe', edge: '#3b6fe0' }, // blue
-  { bg: '#fde8ef', edge: '#d6336c' }, // pink
-  { bg: '#e6f6ec', edge: '#2f9e5b' }, // green
-  { bg: '#fff1db', edge: '#e08a00' }, // amber
-  { bg: '#efe8fd', edge: '#7a4ce0' }, // purple
-  { bg: '#e0f5f5', edge: '#1c9a9a' }, // teal
-  { bg: '#fde9e3', edge: '#d9541e' }, // orange-red
-  { bg: '#eef3df', edge: '#6d8a1f' }, // olive
-  { bg: '#f3e6f3', edge: '#a3449f' }, // magenta
-  { bg: '#e5eef6', edge: '#3f6f94' }, // slate blue
-  { bg: '#f7efe2', edge: '#9a6b2f' }, // brown
-  { bg: '#ececec', edge: '#5c5c5c' }, // grey
+  tint('#3b6fe0'), // blue
+  tint('#d6336c'), // pink
+  tint('#2f9e5b'), // green
+  tint('#e08a00'), // amber
+  tint('#7a4ce0'), // purple
+  tint('#1c9a9a'), // teal
+  tint('#d9541e'), // orange-red
+  tint('#6d8a1f'), // olive
+  tint('#a3449f'), // magenta
+  tint('#3f6f94'), // slate blue
+  tint('#9a6b2f'), // brown
+  tint('#5c5c5c'), // grey
 ];
 
 export type BrandColor = (typeof BRAND_PALETTE)[number];

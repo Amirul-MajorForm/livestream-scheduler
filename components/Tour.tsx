@@ -6,7 +6,7 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 
 /**
  * Guided tour that walks through the app page by page, highlighting one element at a time.
- * Started from the "Tour" button in the top bar (or a 'start-tour' window event).
+ * Started from "Guided tour" in the sidebar (or a 'start-tour' window event).
  * Progress is kept in localStorage so it survives page navigation.
  */
 
@@ -41,7 +41,7 @@ function firstHref(sel: string) {
 
 const ADMIN_STEPS: Step[] = [
   { on: l => l.pathname === '/admin', go: () => '/admin', target: 'title', title: 'Welcome',
-    body: 'This tour walks you through the app in the order you’ll use it each month. Use Next and Back, or close it any time with ×. You can restart it from the Tour button at the top.' },
+    body: 'This tour walks you through the app in the order you’ll use it each month. Use Next and Back, or close it any time with ×. You can restart it from Guided tour at the bottom of the menu.' },
   { on: l => l.pathname.startsWith('/admin'), go: () => '/admin', target: 'nav', title: 'The main menu',
     body: 'Months: plan each month. Hosts: people, caps and brands. Brands, rooms & team: the lists the app uses and ops logins. Planning rules: what the scheduler follows, and the rules you can adjust. Import: bring in the Google Sheet (one time).' },
   { on: l => l.pathname === '/admin/hosts', go: () => '/admin/hosts', target: 'hosts-table', title: 'Hosts',
@@ -175,7 +175,10 @@ export default function Tour({ role }: { role: 'admin' | 'host' }) {
   }, [i, onPage, pathname, params]);
 
   const startButton = (
-    <button type="button" className="link" onClick={() => goTo(0)} title="A step-by-step walkthrough of the app">Tour</button>
+    <button type="button" className="sb-item" onClick={() => goTo(0)} title="A step-by-step walkthrough of the app">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m15.5 8.5-2 5-5 2 2-5z" /></svg>
+      Guided tour
+    </button>
   );
   if (i == null || !step) return startButton;
 
@@ -192,7 +195,7 @@ export default function Tour({ role }: { role: 'admin' | 'host' }) {
   }
   const pad = 6;
 
-  // Rendered into <body> so the top bar's styles and stacking don't affect the overlay.
+  // Rendered into <body> so the sidebar's styles and stacking don't affect the overlay.
   return (
     <>
       {startButton}

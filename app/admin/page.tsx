@@ -4,9 +4,12 @@ import { monthLabel } from '@/lib/data';
 import Flash from '@/components/Flash';
 import { createMonth } from './actions';
 import StartTourButton from '@/components/StartTourButton';
+import TypedGreeting from '@/components/TypedGreeting';
+import { requireAdmin } from '@/lib/auth';
 
 export default async function AdminHome({ searchParams }: { searchParams: Promise<{ ok?: string; bad?: string }> }) {
   const sp = await searchParams;
+  const user = await requireAdmin();
   const months = await query(`
     SELECT m.*,
       (SELECT count(*)::int FROM schedule_runs r WHERE r.month_id = m.id) AS runs,
@@ -27,8 +30,8 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     <>
       <div className="page-head">
         <div>
-          <h1 data-tour="title">Months</h1>
-          <p className="muted">Each month has its own sale dates, commitments, pre-planned streams and schedule versions.</p>
+          <TypedGreeting data-tour="title" text={`Hi ${(user.name || '').split(' ')[0] || 'there'}!`} />
+          <p className="muted" style={{ margin: 0 }}><strong style={{ color: 'var(--text-primary)' }}>Months.</strong> Each month has its own sale dates, commitments, pre-planned streams and schedule versions.</p>
         </div>
       </div>
       <Flash sp={sp} />

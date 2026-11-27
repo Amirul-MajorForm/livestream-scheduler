@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { requireHost } from '@/lib/auth';
 import { query, one } from '@/lib/db';
 import { monthLabel, monthRange, ensureMonth, todayYearMonth, type MonthRow } from '@/lib/data';
-import TopBar from '@/components/TopBar';
+import AppShell from '@/components/AppShell';
+import TypedGreeting from '@/components/TypedGreeting';
 import AvailabilityGrid from '@/components/AvailabilityGrid';
 import StreamList, { type StreamRow } from '@/components/StreamList';
 import MonthCalendar from '@/components/MonthCalendar';
@@ -114,12 +115,10 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
   }
 
   return (
-    <>
-      <TopBar user={user} links={[{ href: '/host', label: 'My schedule' }]} />
-      <main>
+    <AppShell user={user} links={[{ href: '/host', label: 'My schedule', icon: 'calendar' }]}>
         <div className="page-head" style={{ marginBottom: 8 }}>
           <div>
-            <h1 data-tour="title">Hi {host?.name || user.name}</h1>
+            <TypedGreeting data-tour="title" text={`Hi ${(host?.name || user.name || '').split(' ')[0] || 'there'}!`} />
             <p className="muted" style={{ marginBottom: 0 }}>
               <strong>1.</strong> Open <em>My availability</em>, tap every hour you can stream, press <em>Save availability</em>.{' '}
               <strong>2.</strong> The ops team builds the schedule.{' '}
@@ -145,7 +144,6 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
           </Link>
         </div>
         {content}
-      </main>
-    </>
+    </AppShell>
   );
 }

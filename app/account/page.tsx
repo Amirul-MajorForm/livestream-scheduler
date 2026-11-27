@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import bcrypt from 'bcryptjs';
 import { requireUser } from '@/lib/auth';
 import { one, query } from '@/lib/db';
-import TopBar from '@/components/TopBar';
+import AppShell, { type NavLink } from '@/components/AppShell';
 import Flash from '@/components/Flash';
 
 export const dynamic = 'force-dynamic';
@@ -21,11 +21,12 @@ async function changePassword(f: FormData) {
 export default async function AccountPage({ searchParams }: { searchParams: Promise<{ ok?: string; bad?: string }> }) {
   const user = await requireUser();
   const sp = await searchParams;
-  const links = user.role === 'admin' ? [{ href: '/admin', label: 'Back to admin' }] : [{ href: '/host', label: 'My schedule' }];
+  const links: NavLink[] = user.role === 'admin'
+    ? [{ href: '/admin', label: 'Back to admin', icon: 'back' }]
+    : [{ href: '/host', label: 'My schedule', icon: 'calendar' }];
   return (
-    <>
-      <TopBar user={user} links={links} />
-      <main style={{ maxWidth: 480 }}>
+    <AppShell user={user} links={links}>
+      <div style={{ maxWidth: 480 }}>
         <h1>Your account</h1>
         <p className="muted">{user.email}</p>
         <Flash sp={sp} />
@@ -37,7 +38,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             <div><button className="primary" type="submit">Change password</button></div>
           </form>
         </div>
-      </main>
-    </>
+      </div>
+    </AppShell>
   );
 }
