@@ -581,3 +581,14 @@ tr.total-row td { background: var(--surface-alt); font-weight: 600; }
 .month-pills .past-months a.past { padding: 3px 8px; border: 0; border-radius: var(--r-badge); font-size: 12.5px; background: transparent; }
 .month-pills .past-months a.past:hover { background: var(--surface-alt); }
 .month-pills .past-months a.past.on { background: var(--accent-light); color: var(--accent); }
+
+/* Bulk payment status on Sales & earnings */
+.bulk-pay { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-tile); }
+.bulk-pay.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent-light) 45%, var(--surface)); }
+.bulk-pay select { font-size: 12.5px; padding: 4px 6px; margin-left: 6px; }
+.bulk-pay .bulk-sep { width: 1px; height: 20px; background: var(--border); }
+.bulk-note summary { color: var(--accent); }
+.bulk-note input { width: 220px; }
+.sales-table tr:has(td.cb input:checked) td { background: var(--accent-light); }
+.bulk-pay select { width: auto; max-width: 270px; }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { computeFee, withRecordedFee, money, pctLabel, PAY_STATUSES, type Rate } from '@/lib/earnings';
 import { fmtRange } from '@/lib/format';
 import PlatformTag from './PlatformTag';
@@ -41,6 +41,45 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
   const [dirty, setDirty] = useState(false);
   const set = (id: number, k: 'tt' | 'sp' | 'pay' | 'notes', v: string) => { setVals(p => ({ ...p, [id]: { ...p[id], [k]: v } })); setDirty(true); };
 
+  // Ticked rows for bulk changes. Shift-click ticks a range.
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const lastClick = useRef<number | null>(null);
+  const [bulkPay, setBulkPay] = useState<string>('Paid');
+  const [bulkNote, setBulkNote] = useState('');
+  const [submitNext, setSubmitNext] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const allBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (allBox.current) allBox.current.indeterminate = sel.size > 0 && sel.size < rows.length;
+  }, [sel, rows.length]);
+  useEffect(() => {
+    // Save straight after a bulk change has been applied to the inputs.
+    if (submitNext) { setSubmitNext(false); formRef.current?.requestSubmit(); }
+  }, [submitNext]);
+  const tick = (id: number, index: number, on: boolean, shift: boolean) => {
+    const from = lastClick.current; // read now: the state updater below runs later
+    setSel(prev => {
+      const next = new Set(prev);
+      if (shift && from != null) {
+        const [a, b] = [Math.min(from, index), Math.max(from, index)];
+        rows.slice(a, b + 1).forEach(r => { if (on) next.add(r.id); else next.delete(r.id); });
+      } else if (on) next.add(id); else next.delete(id);
+      return next;
+    });
+    lastClick.current = index;
+  };
+  const selectWhere = (pred: (r: SalesRowIn) => boolean) => setSel(new Set(rows.filter(pred).map(r => r.id)));
+  const applyBulk = (alsoNote: boolean) => {
+    if (!sel.size) return;
+    setVals(p => {
+      const n = { ...p };
+      sel.forEach(id => { n[id] = { ...n[id], pay: bulkPay, ...(alsoNote ? { notes: bulkNote } : {}) }; });
+      return n;
+    });
+    setDirty(true);
+    setSubmitNext(true);
+  };
+
   const calc = useMemo(() => rows.map(r => {
     const v = vals[r.id];
     const tt = toNum(v.tt), sp = toNum(v.sp);
@@ -60,7 +99,7 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
   const noRateRows = calc.filter(c => !c.r.group.length && !c.res?.recorded).length;
 
   return (
-    <form action={action} onSubmit={() => setDirty(false)}>
+    <form action={action} onSubmit={() => setDirty(false)} ref={formRef}>
       <input type="hidden" name="monthId" value={monthId} />
       <input type="hidden" name="returnTo" value={returnTo} />
       <div className="kpis">
@@ -75,10 +114,37 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
         </div>
       </div>
 
+      <div className={'bulk-pay' + (sel.size ? ' on' : '')}>
+        <span className="small"><strong>{sel.size}</strong> selected</span>
+        <span className="small muted">Select:</span>
+        <button type="button" className="link" onClick={() => selectWhere(() => true)}>all</button>
+        <button type="button" className="link" onClick={() => selectWhere(r => !!(vals[r.id].tt || vals[r.id].sp) || r.recordedFee != null)}>with sales</button>
+        <button type="button" className="link" onClick={() => selectWhere(r => !/^paid/i.test(vals[r.id].pay))}>not paid</button>
+        <button type="button" className="link" onClick={() => setSel(new Set())} disabled={!sel.size}>none</button>
+        <span className="bulk-sep" />
+        <label className="inline small">Payment status
+          <select value={bulkPay} onChange={e => setBulkPay(e.target.value)} aria-label="Payment status for selected streams">
+            {PAY_STATUSES.map(s => <option key={s} value={s}>{s || '\u2014 (clear)'}</option>)}
+          </select>
+        </label>
+        <button type="button" className="primary" disabled={!sel.size} onClick={() => applyBulk(false)}>
+          Set for {sel.size || ''} stream{sel.size === 1 ? '' : 's'} &amp; save
+        </button>
+        <details className="bulk-note">
+          <summary className="small">Also set a note</summary>
+          <div className="inline" style={{ marginTop: 6 }}>
+            <input value={bulkNote} onChange={e => setBulkNote(e.target.value)} placeholder="e.g. Paid 30 Nov, batch 12" aria-label="Note for selected streams" />
+            <button type="button" disabled={!sel.size} onClick={() => applyBulk(true)}>Set status + note &amp; save</button>
+          </div>
+        </details>
+      </div>
+
       <div className="table-wrap sticky-matrix sales-scroll">
         <table className="compact one-line sales-table">
           <thead>
             <tr>
+              <th className="cb"><input type="checkbox" ref={allBox} checked={rows.length > 0 && sel.size === rows.length}
+                onChange={e => setSel(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())} aria-label="Select all streams" /></th>
               <th>Date &amp; time</th><th>Host</th><th>Brand</th><th>Platform</th>
               <th className="num">TikTok GMV</th><th className="num">Shopee GMV</th><th className="num">Total</th>
               <th className="num" data-tip="Total GMV per stream hour (per platform-hour for a both-platforms rate). Picks the tier.">GMV/h</th>
@@ -103,6 +169,10 @@ export default function SalesTable({ rows, monthId, returnTo, action }: {
               ].join('\n') : 'No rate:\nNo payment rate matches this brand, period, platform and date.';
               return (
                 <tr key={r.id} className={(newDay ? 'day-start ' : '') + (bad ? 'up-bad' : '')}>
+                  <td className="cb">
+                    <input type="checkbox" checked={sel.has(r.id)} aria-label={`Select ${r.brand} ${r.dateLabel}`}
+                      onClick={e => tick(r.id, i, e.currentTarget.checked, e.shiftKey)} onChange={() => { /* handled on click, which knows about Shift */ }} />
+                  </td>
                   <td>
                     <input type="hidden" name="row" value={r.id} />
                     {r.dateLabel} <span className="muted">{fmtRange(r.start_min, r.end_min)}</span>
