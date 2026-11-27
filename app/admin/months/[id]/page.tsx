@@ -9,6 +9,7 @@ import Flash from '@/components/Flash';
 import ConfirmButton from '@/components/ConfirmButton';
 import SubmitButton from '@/components/SubmitButton';
 import AvailabilityGrid from '@/components/AvailabilityGrid';
+import PreplannedUpload from '@/components/PreplannedUpload';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import {
   updateMonthRules, addSaleDay, deleteSaleDay, addCommitment, updateCommitmentQty, deleteCommitment,
@@ -24,7 +25,7 @@ const TABS = [
 ] as const;
 const PLATFORMS = ['TikTok', 'Shopee', 'TikTok & Shopee'];
 
-type SP = { tab?: string; host?: string; paste?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
+type SP = { tab?: string; host?: string; paste?: string; upload?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
 
 export default async function MonthPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
   const { id } = await params;
@@ -218,6 +219,7 @@ async function PreplannedTab({ m, sp }: { m: MonthRow; sp: SP }) {
   const sortParams = { tab: 'preplanned' };
   return (
     <>
+      <PreplannedUpload monthId={m.id} existingCount={allRows.length} open={sp.upload === '1'} />
       <p className="muted">
         Confirmed bookings (e.g. The Ordinary, MOOM, Oatside). They are locked into the schedule first, even if they go over a host&rsquo;s caps.
         Leave the host blank to let the scheduler pick an eligible, available host.
@@ -445,6 +447,7 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
 }
 
 async function ScheduleTab({ m }: { m: MonthRow }) {
+  const preCount = (await query('SELECT count(*)::int AS n FROM preplanned_streams WHERE month_id = $1', [m.id]))[0].n;
   const [runs, issues, subs, active] = await Promise.all([
     query(`SELECT r.*, u.email AS by_email, (SELECT count(*)::int FROM scheduled_streams s WHERE s.run_id = r.id) AS streams
            FROM schedule_runs r LEFT JOIN users u ON u.id = r.created_by WHERE r.month_id = $1 ORDER BY r.created_at DESC`, [m.id]),
@@ -472,6 +475,11 @@ async function ScheduleTab({ m }: { m: MonthRow }) {
         {subs[0].n < active[0].n && (
           <div className="notice warn">{active[0].n - subs[0].n} active hosts have no availability for this month yet. You can still run; they just won&rsquo;t be scheduled.</div>
         )}
+        <p className="small" style={{ margin: '0 0 10px' }}>
+          <strong>{preCount}</strong> pre-planned stream{preCount === 1 ? '' : 's'} will be locked in first.{' '}
+          <Link href={`/admin/months/${m.id}?tab=preplanned`}>Review them</Link> or{' '}
+          <Link href={`/admin/months/${m.id}?tab=preplanned&upload=1`}>upload a .csv / Excel file</Link> before running.
+        </p>
         <form action={runSchedule} className="form-row">
           <input type="hidden" name="monthId" value={m.id} />
           <label className="field">Version name (optional)<input name="label" placeholder="e.g. First draft" /></label>

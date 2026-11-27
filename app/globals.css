@@ -403,3 +403,7 @@ table.one-line tr.row-editing select[name=period] { width: 64px; }
 table.one-line tr.row-editing select[name=sale] { max-width: 120px; }
 table.one-line tr.row-editing td:last-child .row-actions { gap: 8px; }
 table.one-line tr.row-editing input.hhmm { width: 54px; text-align: center; }
+.upload-card > summary { font-size: 14px; }
+tr.up-bad td { background: var(--bad-soft); }
+tr.up-warn td { background: var(--warn-soft); }
+tr.up-dup td { color: var(--muted); }
