@@ -10,10 +10,11 @@ import ConfirmButton from '@/components/ConfirmButton';
 import SubmitButton from '@/components/SubmitButton';
 import AvailabilityGrid from '@/components/AvailabilityGrid';
 import PreplannedUpload from '@/components/PreplannedUpload';
+import { SelectAllBox, BulkButton } from '@/components/BulkSelect';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import {
   updateMonthRules, addSaleDay, deleteSaleDay, addCommitment, updateCommitmentQty, deleteCommitment,
-  addPreplanned, deletePreplanned, updatePreplannedHost, setAvailabilityOpen, runSchedule, deleteMonth, unpublishMonth,
+  addPreplanned, deletePreplanned, deletePreplannedMany, updatePreplannedHost, setAvailabilityOpen, runSchedule, deleteMonth, unpublishMonth,
 } from '../../actions';
 
 const TABS = [
@@ -224,10 +225,18 @@ async function PreplannedTab({ m, sp }: { m: MonthRow; sp: SP }) {
         Confirmed bookings (e.g. The Ordinary, MOOM, Oatside). They are locked into the schedule first, even if they go over a host&rsquo;s caps.
         Leave the host blank to let the scheduler pick an eligible, available host.
       </p>
+      {rows.length > 0 && (
+        <form id="bulk-pre" action={deletePreplannedMany} className="bulk-bar">
+          <input type="hidden" name="monthId" value={m.id} />
+          <span className="small muted">Tick streams to remove several at once.</span>
+          <BulkButton formId="bulk-pre" label="Remove selected" confirmText="Remove {n} pre-planned streams? This can't be undone." />
+        </form>
+      )}
       <div className="table-wrap" data-tour="preplanned">
         <table className="compact">
           <thead>
             <tr>
+              <th className="cb">{rows.length > 0 && <SelectAllBox formId="bulk-pre" />}</th>
               <SortHeader label="Date" k="date" sort={sort} dir={dir} params={sortParams} />
               <th>Time</th>
               <SortHeader label="Brand" k="brand" sort={sort} dir={dir} params={sortParams} />
@@ -240,6 +249,7 @@ async function PreplannedTab({ m, sp }: { m: MonthRow; sp: SP }) {
           <tbody>
             {rows.map(r => (
               <tr key={r.id}>
+                <td className="cb"><input type="checkbox" name="ids" value={r.id} form="bulk-pre" aria-label={`Select ${r.brand} ${fmtDate(r.date)}`} /></td>
                 <td className="nw">{fmtDate(r.date)}</td>
                 <td className="nw">{fmtRange(r.start_min, r.end_min)}</td>
                 <td className="nw"><strong>{r.brand}</strong></td>
@@ -267,7 +277,7 @@ async function PreplannedTab({ m, sp }: { m: MonthRow; sp: SP }) {
                 </td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={8} className="muted">No pre-planned streams.</td></tr>}
+            {!rows.length && <tr><td colSpan={9} className="muted">No pre-planned streams.</td></tr>}
           </tbody>
         </table>
       </div>

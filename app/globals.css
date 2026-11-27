@@ -407,3 +407,6 @@ table.one-line tr.row-editing input.hhmm { width: 54px; text-align: center; }
 tr.up-bad td { background: var(--bad-soft); }
 tr.up-warn td { background: var(--warn-soft); }
 tr.up-dup td { color: var(--muted); }
+.bulk-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+th.cb, td.cb { width: 30px; text-align: center; padding-left: 8px !important; padding-right: 0 !important; }
+tr:has(td.cb input:checked) td { background: var(--accent-soft); }

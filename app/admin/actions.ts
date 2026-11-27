@@ -155,6 +155,15 @@ export async function updatePreplannedHost(f: FormData) {
   back(`/admin/months/${n(f, 'monthId')}?tab=preplanned`, 'Host updated');
 }
 
+export async function deletePreplannedMany(f: FormData) {
+  await requireAdmin();
+  const monthId = n(f, 'monthId');
+  const ids = f.getAll('ids').map(Number).filter(Boolean);
+  if (!ids.length) back(`/admin/months/${monthId}?tab=preplanned`, 'Tick at least one stream to remove', 'bad');
+  const rows = await query('DELETE FROM preplanned_streams WHERE month_id = $1 AND id = ANY($2) RETURNING id', [monthId, ids]);
+  back(`/admin/months/${monthId}?tab=preplanned`, `Removed ${rows.length} pre-planned stream${rows.length === 1 ? '' : 's'}.`);
+}
+
 export async function deletePreplanned(f: FormData) {
   await requireAdmin();
   await query('DELETE FROM preplanned_streams WHERE id = $1', [n(f, 'id')]);
