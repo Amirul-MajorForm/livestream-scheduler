@@ -32,16 +32,18 @@ export interface PlannedRow {
 type Cell = unknown;
 
 const HEADERS: Record<string, string[]> = {
-  date: ['date', 'day of month', 'stream date'],
+  date: ['date', 'dates', 'day of month', 'stream date'],
   start: ['start time', 'start', 'from', 'start_time'],
   end: ['end time', 'end', 'to', 'end_time'],
   time: ['time', 'timeslot', 'time slot', 'slot'],
-  host: ['talent', 'host', 'host name', 'presenter'],
+  host: ['talent', 'host', 'host name', 'talent name', 'presenter', 'streamer'],
   brand: ['brand', 'client'],
   period: ['period', 'bau / mega', 'bau/mega', 'type'],
   sale: ['sale', 'sale campaign', 'campaign'],
   platform: ['platform', 'platforms', 'channel'],
-  room: ['room', 'studio'],
+  room: ['room', 'studio', 'location'],
+  approval: ['amirul approval', 'approval', 'approved'],
+  status: ['status', 'stream status'],
 };
 
 const norm = (v: Cell) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -93,8 +95,9 @@ async function readRows(name: string, buffer: Buffer): Promise<Cell[][]> {
 }
 
 function findHeader(rows: Cell[][]) {
-  // The header is the first of the top 10 rows that names at least date, brand and platform.
-  for (let i = 0; i < Math.min(10, rows.length); i++) {
+  // The header is the first of the top 60 rows that names at least date, brand and platform
+  // (planning sheets often start with a block of notes).
+  for (let i = 0; i < Math.min(60, rows.length); i++) {
     const cols: Record<string, number> = {};
     rows[i].forEach((v, j) => {
       const h = norm(v);
@@ -131,6 +134,33 @@ function normalizePlatform(v: Cell): string | null {
   return p.has('tiktok') && p.has('shopee') ? 'TikTok & Shopee' : p.has('tiktok') ? 'TikTok' : 'Shopee';
 }
 
+const words = (s: string) => s.toLowerCase().replace(/[()\[\].,&]/g, ' ').split(/\s+/).filter(Boolean);
+const FILLER = new Set(['professional', 'pro', 'official', 'store', 'sg', 'singapore']);
+
+/** Brand by exact name (any case), else ignoring filler words ("Shiseido Professional" -> Shiseido). */
+function matchBrand<B extends { name: string }>(text: string, brands: B[]): { brand?: B; fuzzy: boolean } {
+  const t = text.trim().toLowerCase();
+  const exact = brands.find(b => b.name.toLowerCase() === t);
+  if (exact) return { brand: exact, fuzzy: false };
+  const core = (x: string) => words(x).filter(w => !FILLER.has(w)).join(' ');
+  const c = core(text);
+  const hits = brands.filter(b => core(b.name) === c || (c.length >= 4 && (core(b.name).startsWith(c) || c.startsWith(core(b.name)))));
+  return hits.length === 1 ? { brand: hits[0], fuzzy: true } : { fuzzy: false };
+}
+
+/** Host by exact name, else same words in any order ("Xin Hui (Felicia)" -> "Felicia Xin Hui"), else a unique short name ("Cassandra" -> "Cass"). */
+function matchHost<H extends { name: string }>(text: string, hosts: H[]): { host?: H; fuzzy: boolean } {
+  const t = text.trim().toLowerCase();
+  const exact = hosts.find(h => h.name.toLowerCase() === t);
+  if (exact) return { host: exact, fuzzy: false };
+  const key = (x: string) => words(x).sort().join(' ');
+  const same = hosts.filter(h => key(h.name) === key(text));
+  if (same.length === 1) return { host: same[0], fuzzy: true };
+  const first = words(text)[0] || '';
+  const pre = hosts.filter(h => { const n = h.name.toLowerCase(); return n.length >= 3 && (first.startsWith(n) || n.startsWith(first)) && first.length >= 3; });
+  return pre.length === 1 ? { host: pre[0], fuzzy: true } : { fuzzy: false };
+}
+
 export async function readPreplannedFile(args: {
   fileName: string;
   buffer: Buffer;
@@ -141,7 +171,7 @@ export async function readPreplannedFile(args: {
   rooms: string[];
   saleDays: { name: string; day: number }[];
   existing: { date: string; start_min: number; brand: string; platform: string }[];
-}): Promise<{ rows: PlannedRow[]; error?: string }> {
+}): Promise<{ rows: PlannedRow[]; error?: string; otherMonths?: number; cancelled?: number }> {
   const { year, month } = args;
   let raw: Cell[][];
   try {
@@ -153,21 +183,27 @@ export async function readPreplannedFile(args: {
   if (!head) return { rows: [], error: 'Could not find a header row with at least Date, Brand and Platform columns. Download the template to see the expected columns.' };
   const { cols } = head;
   const get = (r: Cell[], k: string) => (cols[k] === undefined ? '' : r[cols[k]]);
-  const hostBy = new Map(args.hosts.map(h => [h.name.toLowerCase(), h]));
-  const brandBy = new Map(args.brands.map(b => [b.name.toLowerCase(), b]));
   const roomBy = new Map(args.rooms.map(r => [r.toLowerCase(), r]));
   const saleBy = new Map(args.saleDays.map(s => [s.name.toLowerCase(), s]));
   const existing = new Set(args.existing.map(e => [e.date, e.start_min, e.brand.toLowerCase(), e.platform.toLowerCase()].join('|')));
   const seen = new Set<string>();
   const prefix = isoDate(year, month, 1).slice(0, 8);
   const rows: PlannedRow[] = [];
+  let otherMonths = 0;
+  const many = raw.length - head.index - 1 > 200; // a whole-year sheet: quietly ignore other months
 
   raw.slice(head.index + 1).forEach((r, i) => {
     if (!r.some(v => String(v ?? '').trim())) return; // blank line
+    // Placeholder rows (a date with no brand and no times) are just calendar filler.
+    // Also rows with only a time and nothing about the stream (no brand, host or platform).
+    const blank = (k: string) => !String(get(r, k) ?? '').trim();
+    if (blank('brand') && ((blank('start') && blank('time')) || (blank('host') && blank('platform')))) return;
     const errors: string[] = [], warnings: string[] = [];
     const date = parseDateLoose(get(r, 'date'), year, month);
+    if (date && !date.startsWith(prefix) && many) { otherMonths++; return; }
     if (!date) errors.push(`Can't read the date "${String(get(r, 'date') ?? '')}"`);
     else if (!date.startsWith(prefix)) errors.push(`${fmtDate(date, true)} isn't in ${MONTH_NAMES[month]} ${year}`);
+    if ([get(r, 'approval'), get(r, 'status')].some(v => norm(v) === 'cancelled' || norm(v) === 'canceled')) errors.push('Cancelled in the sheet');
 
     let start = parseTimeCell(get(r, 'start') as any), end = parseTimeCell(get(r, 'end') as any);
     if ((start == null || end == null) && cols.time !== undefined) {
@@ -184,21 +220,24 @@ export async function readPreplannedFile(args: {
     else if (start < 10 * 60 || end > 24 * 60) warnings.push('Outside the 10AM–12MN streaming day');
 
     const brandText = String(get(r, 'brand') ?? '').trim();
-    const brand = brandBy.get(brandText.toLowerCase());
+    const { brand, fuzzy: brandFuzzy } = brandText ? matchBrand(brandText, args.brands) : { brand: undefined, fuzzy: false };
     if (!brandText) errors.push('No brand');
     else if (!brand) errors.push(`Unknown brand "${brandText}" (add it under Brands, rooms & team first)`);
+    else if (brandFuzzy) warnings.push(`"${brandText}" read as ${brand.name}`);
 
     const platform = normalizePlatform(get(r, 'platform'));
     if (!platform) errors.push(`Platform "${String(get(r, 'platform') ?? '')}" must be TikTok, Shopee or TikTok & Shopee`);
 
     const hostText = String(get(r, 'host') ?? '').trim();
-    const host = hostText ? hostBy.get(hostText.toLowerCase()) : null;
+    const { host, fuzzy: hostFuzzy } = hostText ? matchHost(hostText, args.hosts) : { host: undefined, fuzzy: false };
     if (hostText && !host) errors.push(`Unknown host "${hostText}" (check the spelling, or leave it blank to auto-assign)`);
-    else if (host && !host.active) warnings.push(`${host.name} is inactive`);
+    else if (host && hostFuzzy) warnings.push(`"${hostText}" read as ${host.name}`);
+    if (host && !host.active) warnings.push(`${host.name} is inactive`);
 
     const pRaw = norm(get(r, 'period'));
     const period = pRaw.startsWith('mega') ? 'mega' : pRaw.startsWith('bau') ? 'bau' : '';
-    if (pRaw && !period) warnings.push(`Period "${pRaw}" not recognised; using the calendar`);
+    // "All" (or "BAU & Mega") means the sale calendar decides.
+    if (pRaw && !period && !['all', 'both', 'bau & mega', 'bau/mega'].includes(pRaw)) warnings.push(`Period "${pRaw}" not recognised; using the calendar`);
 
     const saleText = String(get(r, 'sale') ?? '').trim().replace(/^-$/, '');
     const sale = saleText ? (saleBy.get(saleText.toLowerCase())?.name ?? saleText) : '';
@@ -206,7 +245,8 @@ export async function readPreplannedFile(args: {
 
     const roomText = String(get(r, 'room') ?? '').trim();
     const room = roomText ? roomBy.get(roomText.toLowerCase()) ?? '' : '';
-    if (roomText && !room) warnings.push(`Unknown room "${roomText}" (ignored; the scheduler picks one)`);
+    // "MajorStudio..." means any studio room: let the scheduler pick, no warning.
+    if (roomText && !room && !/^majorstudio|^studio|^any$/i.test(roomText.replace(/\s+/g, ''))) warnings.push(`Room "${roomText}" isn't one of the app's rooms (the scheduler picks one)`);
 
     const key = [date, start, (brand?.name || brandText).toLowerCase(), (platform || '').toLowerCase()].join('|');
     const duplicate = existing.has(key);
@@ -221,7 +261,7 @@ export async function readPreplannedFile(args: {
       summary: `${date ? fmtDate(date) : '?'} ${start != null && end != null ? fmtRange(start, end) : '?'} ${brand?.name ?? brandText} · ${platform ?? '?'} · ${host?.name ?? 'auto-assign'}`,
     });
   });
-  return { rows };
+  return { rows, otherMonths, cancelled: rows.filter(r => r.errors.includes('Cancelled in the sheet')).length };
 }
 
 export const TEMPLATE_CSV =

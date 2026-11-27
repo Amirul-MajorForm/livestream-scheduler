@@ -16,6 +16,7 @@ export default function PreplannedUpload({ monthId, existingCount, open }: { mon
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [other, setOther] = useState<{ count: number; month: string } | null>(null);
   const [mode, setMode] = useState<'add' | 'replace'>(existingCount ? 'add' : 'replace');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export default function PreplannedUpload({ monthId, existingCount, open }: { mon
       const res = await fetch(`/api/months/${monthId}/preplanned-upload`, { method: 'POST', body: fd });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || 'Upload failed');
-      if (m === 'preview') setRows(body.rows);
+      if (m === 'preview') { setRows(body.rows); setOther({ count: body.otherMonths || 0, month: body.month }); }
       else {
         setDone(`Imported ${body.added} pre-planned stream${body.added === 1 ? '' : 's'}` +
           (body.removed ? `, replacing ${body.removed}` : '') +
@@ -73,7 +74,8 @@ export default function PreplannedUpload({ monthId, existingCount, open }: { mon
             <span className="badge ok">{ok.length} ready</span>{' '}
             {warn.length > 0 && <span className="badge warn">{warn.length} with warnings</span>}{' '}
             {dup.length > 0 && <span className="badge">{dup.length} already on the list</span>}{' '}
-            {bad.length > 0 && <span className="badge bad">{bad.length} will be skipped</span>}
+            {bad.length > 0 && <span className="badge bad">{bad.length} will be skipped</span>}{' '}
+            {other && other.count > 0 && <span className="small muted">Only rows in {other.month} are read; {other.count} rows from other months were ignored.</span>}
           </p>
           <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
             <table className="compact">

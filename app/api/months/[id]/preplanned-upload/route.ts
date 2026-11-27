@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     query('SELECT name, day FROM sale_days WHERE month_id = $1', [monthId]),
     query(`SELECT p.date, p.start_min, b.name AS brand, p.platform FROM preplanned_streams p JOIN brands b ON b.id = p.brand_id WHERE p.month_id = $1`, [monthId]),
   ]);
-  const { rows, error } = await readPreplannedFile({
+  const { rows, error, otherMonths } = await readPreplannedFile({
     fileName: file.name, buffer: Buffer.from(await file.arrayBuffer()), year: m.year, month: m.month,
     hosts: hosts.map(h => ({ id: h.id, name: h.name, active: h.active })), brands: brands.map(b => ({ id: b.id, name: b.name })),
     rooms: rooms.map(r => r.name), saleDays: saleDays.map(s => ({ name: s.name, day: s.day })),
@@ -43,7 +43,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     existing: mode === 'replace' ? [] : existing.map(e => ({ date: e.date, start_min: e.start_min, brand: e.brand, platform: e.platform })),
   });
   if (error) return NextResponse.json({ error }, { status: 400 });
-  if (mode === 'preview') return NextResponse.json({ rows, existingCount: existing.length, month: monthLabel(m.year, m.month) });
+  if (mode === 'preview') return NextResponse.json({ rows, otherMonths: otherMonths ?? 0, existingCount: existing.length, month: monthLabel(m.year, m.month) });
 
   const toInsert = rows.filter(r => !r.errors.length && !r.duplicate);
   const result = await tx(async c => {
