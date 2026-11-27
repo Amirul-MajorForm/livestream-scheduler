@@ -9,10 +9,10 @@ import Flash from '@/components/Flash';
 import ConfirmButton from '@/components/ConfirmButton';
 import { saveRulesAction, addBrandPair, removeBrandPair, savePlannerNotes } from '../actions';
 
-const FRIDAY = { avoid: 'Avoid (only if nothing better)', never: 'Never schedule BAU on Fridays', allow: 'No preference' } as const;
+const FRIDAY = { avoid: 'Avoid (only if nothing better)', never: 'Never on Fridays', allow: 'No preference' } as const;
 const LATE = {
-  'avoid-alone': 'Avoid a female host being the only stream from 6PM',
-  never: 'Never schedule female hosts 10PM–12MN',
+  'avoid-alone': 'Avoid: alone in a slot from 6PM',
+  never: 'Never 10PM–12MN',
   allow: 'No preference',
 } as const;
 

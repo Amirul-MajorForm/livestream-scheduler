@@ -15,7 +15,9 @@ The scheduling engine (`lib/scheduler.ts`) is a direct port of the Apps Script *
 4. **Schedule → Run scheduler.** Each run is saved as a version with the full summary (fulfilment, unfulfilled commitments with reasons, host and room utilisation, warnings). Edit streams if needed (conflicts are flagged), then **Publish to hosts**.
 5. Hosts see their published streams under **My schedule**. Export any version to CSV.
 
-## Scheduling rules (same as the sheet)
+## Scheduling rules
+
+The admin **Planning rules** page explains every rule and lets ops adjust some of them (same brand on different platforms, streams per host per day, Fridays, late slots for female hosts, brands kept apart), plus a notes box for rule changes to build next. With the rules set to the original values the scheduler reproduces the Apps Script exactly (`npm run parity`). The underlying rules:
 
 - Hard rules: brand eligibility (Excluded is never scheduled), platform (TikTok & Shopee needs both), marked availability, max streams per month, max % of a brand's sessions, at most 2 streams per host per day, no host/room/same-brand overlaps, room permissions, unavailable rooms.
 - Pre-planned streams are locked in first, even if they break the rules above (a warning is shown), and count toward matching commitments.
