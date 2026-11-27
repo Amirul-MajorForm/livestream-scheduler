@@ -329,3 +329,54 @@ tr.row-confirmed td { background: #f6fbf8; }
 tr.row-inactive td:not(.sticky-col) { opacity: .5; }
 tr.row-inactive td.sticky-col a { color: var(--muted); }
 tr.row-inactive td:nth-child(2) { opacity: 1; }
+
+/* Hourly availability grid: compact rows, hours grouped into 2-hour stream blocks */
+.avail-scroll { overflow-x: auto; }
+.avail.hourly { border-collapse: separate; border-spacing: 0; width: 100%; }
+.avail.hourly th, .avail.hourly td { padding: 1px 1px; border-bottom: 1px solid var(--line); text-align: center; }
+.avail.hourly thead th { background: #fafaf8; font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.avail.hourly tr.blocks th.block { padding-top: 4px; border-bottom: 0; border-left: 2px solid var(--line); }
+.avail.hourly tr.blocks th.block .to { font-weight: 400; color: #a3a29b; }
+.avail.hourly tr.hours th { font-weight: 500; padding-bottom: 3px; }
+.avail.hourly .bs { border-left: 2px solid var(--line); }
+.avail.hourly td.date, .avail.hourly th.date {
+  text-align: left; padding: 1px 8px 1px 4px; white-space: nowrap; font-size: 12.5px;
+  position: sticky; left: 0; background: var(--panel); z-index: 1;
+}
+.avail.hourly th.date { background: #fafaf8; vertical-align: bottom; }
+.avail.hourly tr.weekend td.date { color: var(--accent); }
+.avail.hourly tr.mega td.date { background: var(--mega-soft); }
+.avail.hourly td.date .sale { display: inline-block; margin-left: 6px; font-size: 9.5px; font-weight: 600; color: var(--mega); max-width: 92px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.avail.hourly .slotbtn { min-width: 24px; width: 100%; height: 22px; border-radius: 4px; padding: 0; }
+.avail.hourly .slotbtn.on { background: var(--ok); border-color: var(--ok); }
+.avail.hourly .slotbtn.lonely { background: #8fcfa9; border-color: #8fcfa9; }
+.avail.hourly td.copy-col, .avail.hourly th.copy-col { text-align: left; padding-left: 8px; white-space: nowrap; border-left: 0; }
+@media (max-width: 720px) {
+  .avail.hourly .slotbtn { min-width: 19px; height: 22px; }
+  .avail.hourly tr.blocks th.block .to { display: none; }
+  .avail.hourly td.date { font-size: 11.5px; padding-right: 4px; }
+  .avail.hourly td.date .sale { display: block; margin: 0; max-width: 64px; }
+}
+
+/* Host portal: month buttons and List/Calendar switch */
+.month-pills { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 4px; }
+.month-pills a { display: flex; flex-direction: column; padding: 6px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); font-weight: 600; line-height: 1.25; }
+.month-pills a .small { font-weight: 400; color: var(--muted); }
+.month-pills a.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); color: var(--accent); }
+.month-pills a:hover { text-decoration: none; border-color: var(--accent); }
+.host-sched-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.seg a { padding: 7px 18px; font-weight: 600; color: var(--muted); }
+.seg a.on { background: var(--accent); color: #fff; }
+.seg a:hover { text-decoration: none; }
+.sticky-bar { z-index: 6; }
+@media (max-width: 720px) {
+  .avail.hourly td.date .sale { display: none; }
+  .avail.hourly tr.mega td.date { box-shadow: inset 3px 0 0 var(--mega); }
+  .avail.hourly td.date { padding-left: 6px; }
+}
+@media (max-width: 720px) {
+  .avail.hourly .slotbtn { min-width: 17px; }
+  .avail.hourly th, .avail.hourly td { padding: 1px 0.5px; }
+  .avail.hourly tr.hours th { font-size: 10px; }
+}

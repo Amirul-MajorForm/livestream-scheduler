@@ -1,4 +1,5 @@
-import { START_MINS, SLOTS, parsePlatforms } from './scheduler';
+import { parsePlatforms } from './scheduler';
+import { hoursCovered, hourRange, mergeHours } from './hours';
 import { fmtDate, fmtRange } from './format';
 
 export interface IssueStream {
@@ -29,15 +30,14 @@ export interface Issue {
   severity: 'bad' | 'warn';
 }
 
-const covered = (s: { start_min: number; end_min: number }) =>
-  START_MINS.map((m, i) => ({ i, m })).filter(x => x.m < s.end_min && s.start_min < x.m + 120).map(x => x.i);
 const overlaps = (a: IssueStream, b: IssueStream) => a.date === b.date && a.start_min < b.end_min && b.start_min < a.end_min;
 const desc = (o: IssueStream) => `${o.brand} (${o.platform}) ${fmtRange(o.start_min, o.end_min)}`;
 
 /** Works out every warning for every stream in a schedule version, with a human explanation. */
-export function findIssues(streams: IssueStream[], availability: { host_id: number; date: string; slot: number }[], hosts: IssueHost[]) {
-  const avail = new Set(availability.map(a => a.host_id + '|' + a.date + '|' + a.slot));
-  const slotsTicked = (hid: number, date: string) => SLOTS.filter((_, i) => avail.has(hid + '|' + date + '|' + i));
+export function findIssues(streams: IssueStream[], availability: { host_id: number; date: string; hour: number }[], hosts: IssueHost[]) {
+  // Availability is hourly; a stream needs every hour it covers ticked.
+  const avail = new Set(availability.map(a => a.host_id + '|' + a.date + '|' + a.hour));
+  const hoursTicked = (hid: number, date: string) => [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].filter(h => avail.has(hid + '|' + date + '|' + h));
   const countByHost = new Map<number, number>();
   streams.forEach(s => { if (s.host_id) countByHost.set(s.host_id, (countByHost.get(s.host_id) || 0) + 1); });
   const out = new Map<number, Issue[]>();
@@ -59,13 +59,12 @@ export function findIssues(streams: IssueStream[], availability: { host_id: numb
       detail: `${s.brand} also streams ${sameBrand.map(o => o.platform + ' ' + fmtRange(o.start_min, o.end_min) + ' with ' + (o.host_name || 'no host')).join('; ')}.` });
 
     if (s.host_id) {
-      const need = covered(s);
-      const missing = need.filter(i => !avail.has(s.host_id + '|' + s.date + '|' + i));
+      const missing = hoursCovered(s.start_min, s.end_min).filter(h => !avail.has(s.host_id + '|' + s.date + '|' + h));
       if (missing.length) {
-        const ticked = slotsTicked(s.host_id, s.date);
+        const ticked = hoursTicked(s.host_id, s.date);
         list.push({ tag: 'Host not marked available', severity: 'warn',
-          detail: `${s.host_name} did not tick ${missing.map(i => SLOTS[i]).join(', ')} on ${fmtDate(s.date)}. ` +
-            (ticked.length ? `They ticked: ${ticked.join(', ')}.` : 'They ticked nothing that day.') + ' Check with the host.' });
+          detail: `${s.host_name} did not tick ${missing.map(hourRange).join(', ')} on ${fmtDate(s.date)}. ` +
+            (ticked.length ? `They ticked: ${mergeHours(ticked)}.` : 'They ticked nothing that day.') + ' Check with the host.' });
       }
     }
 
@@ -83,11 +82,11 @@ function explainNoHost(s: IssueStream, streams: IssueStream[], hosts: IssueHost[
   const eligible = hosts.filter(h => h.active && ['preferred', 'regular'].includes(h.prefs[s.brand.toLowerCase()]) &&
     !!need && [...need].every(p => parsePlatforms(h.platforms)?.has(p)));
   if (!eligible.length) return `No active host is set up for ${s.brand} on ${s.platform}. Set a host to Preferred or Regular for ${s.brand} (and both platforms if needed) on the Hosts page.`;
-  const slots = covered(s);
-  const ticked = eligible.filter(h => slots.every(i => avail.has(h.id + '|' + s.date + '|' + i)));
+  const hoursNeeded = hoursCovered(s.start_min, s.end_min);
+  const ticked = eligible.filter(h => hoursNeeded.every(hr => avail.has(h.id + '|' + s.date + '|' + hr)));
   const names = (l: IssueHost[]) => l.map(h => h.name).join(', ');
   let text = `${eligible.length} host${eligible.length === 1 ? '' : 's'} can do ${s.brand} on ${s.platform}. `;
-  if (!ticked.length) return text + `None of them ticked ${slots.map(i => SLOTS[i]).join(' + ')} on ${fmtDate(s.date)}. Ask one of them (${names(eligible.slice(0, 6))}${eligible.length > 6 ? '…' : ''}) or pick a host with Edit.`;
+  if (!ticked.length) return text + `None of them ticked ${mergeHours(hoursNeeded)} on ${fmtDate(s.date)}. Ask one of them (${names(eligible.slice(0, 6))}${eligible.length > 6 ? '…' : ''}) or pick a host with Edit.`;
   const busy = ticked.filter(h => streams.some(o => o.host_id === h.id && overlaps(o, s)));
   const capped = ticked.filter(h => !busy.includes(h) && h.max_streams_month != null && (countByHost.get(h.id) || 0) >= h.max_streams_month);
   const free = ticked.filter(h => !busy.includes(h) && !capped.includes(h));

@@ -22,14 +22,14 @@ export async function POST(req: Request) {
   const { start, end } = monthRange(m.year, m.month);
   const [saleDays, current] = await Promise.all([
     query('SELECT name, day FROM sale_days WHERE month_id = $1', [monthId]),
-    query('SELECT date, slot FROM availability WHERE host_id = $1 AND date BETWEEN $2 AND $3', [hostId, start, end]),
+    query('SELECT date, hour FROM availability WHERE host_id = $1 AND date BETWEEN $2 AND $3', [hostId, start, end]),
   ]);
 
   try {
     const result = await parseAvailabilityMessage({
       hostName: host.name, year: m.year, month: m.month, text,
       saleDays: saleDays.map(s => ({ name: s.name, day: s.day })),
-      current: current.map(c => ({ date: c.date, slot: c.slot })),
+      current: current.map(c => ({ date: c.date, hour: c.hour })),
     });
     return NextResponse.json(result);
   } catch (e) {

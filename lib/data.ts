@@ -39,7 +39,9 @@ export async function loadSchedulerInput(monthId: number): Promise<SchedulerInpu
     query('SELECT name, status FROM rooms ORDER BY sort_order, id'),
     query('SELECT * FROM hosts WHERE active ORDER BY sort_order, id'),
     query('SELECT p.host_id, b.name AS brand, p.level FROM host_brand_prefs p JOIN brands b ON b.id = p.brand_id'),
-    query('SELECT h.name AS host, a.date, a.slot FROM availability a JOIN hosts h ON h.id = a.host_id WHERE h.active AND a.date BETWEEN $1 AND $2', [start, end]),
+    // Hourly availability -> 2-hour slots: a slot counts only when both of its hours are ticked.
+    query(`SELECT h.name AS host, a.date, (a.hour - 10) / 2 AS slot FROM availability a JOIN hosts h ON h.id = a.host_id
+           WHERE h.active AND a.date BETWEEN $1 AND $2 GROUP BY h.name, a.date, (a.hour - 10) / 2 HAVING count(*) = 2`, [start, end]),
     query(`SELECT c.*, b.name AS brand FROM commitments c JOIN brands b ON b.id = c.brand_id
            WHERE c.month_id = $1 ORDER BY c.sort_order, c.id`, [monthId]),
     query(`SELECT p.*, b.name AS brand, h.name AS host FROM preplanned_streams p
@@ -207,8 +209,13 @@ export async function importDataset(ds: Dataset) {
       for (let i = 0; i < rows.length; i += 1000) {
         const chunk = rows.slice(i, i + 1000);
         const params: unknown[] = [];
-        const values = chunk.map((a, j) => { params.push(hostIds.get(a.host), a.date, a.slot); return `($${j * 3 + 1},$${j * 3 + 2},$${j * 3 + 3})`; });
-        await c.query('INSERT INTO availability(host_id, date, slot) VALUES ' + values.join(',') + ' ON CONFLICT DO NOTHING', params);
+        // The sheet has 2-hour slots; each becomes its two hours.
+        const values = chunk.flatMap((a, j) => {
+          params.push(hostIds.get(a.host), a.date, 10 + 2 * a.slot, 11 + 2 * a.slot);
+          const b = j * 4;
+          return [`($${b + 1},$${b + 2},$${b + 3})`, `($${b + 1},$${b + 2},$${b + 4})`];
+        });
+        await c.query('INSERT INTO availability(host_id, date, hour) VALUES ' + values.join(',') + ' ON CONFLICT DO NOTHING', params);
       }
       log.push(rows.length + ' availability slots across ' + dates.length + ' dates');
     }
@@ -218,4 +225,21 @@ export async function importDataset(ds: Dataset) {
 
 function titleCase(s: string) {
   return s.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/** Today's year and 0-based month in the team's timezone (APP_TIMEZONE, default Asia/Singapore). */
+export function todayYearMonth() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'Asia/Singapore', year: 'numeric', month: '2-digit' })
+    .formatToParts(new Date());
+  return { year: Number(parts.find(p => p.type === 'year')!.value), month: Number(parts.find(p => p.type === 'month')!.value) - 1 };
+}
+
+/**
+ * Makes sure a month row exists so hosts can enter availability before ops have set the month up.
+ * A month created this way is empty (default rules, no commitments); ops can still copy last month's
+ * commitments into it from "Start a new month".
+ */
+export async function ensureMonth(year: number, month: number) {
+  await query(`INSERT INTO months(year, month) VALUES ($1, $2) ON CONFLICT (year, month) DO NOTHING`, [year, month]);
+  return (await one<MonthRow>('SELECT * FROM months WHERE year = $1 AND month = $2', [year, month]))!;
 }

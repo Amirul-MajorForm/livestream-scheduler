@@ -30,7 +30,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
     query('SELECT id, name, active, max_streams_month, platforms FROM hosts ORDER BY active DESC, name'),
     query('SELECT name FROM rooms ORDER BY sort_order, id'),
     query('SELECT name FROM brands ORDER BY sort_order, name'),
-    query('SELECT host_id, date, slot FROM availability WHERE date BETWEEN $1 AND $2', [start, end]),
+    query('SELECT host_id, date, hour FROM availability WHERE date BETWEEN $1 AND $2', [start, end]),
     query('SELECT name, day FROM sale_days WHERE month_id = $1', [m.id]),
     query('SELECT p.host_id, lower(b.name) AS brand, p.level FROM host_brand_prefs p JOIN brands b ON b.id = p.brand_id'),
   ]);

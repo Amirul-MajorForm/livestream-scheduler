@@ -9,7 +9,8 @@ export async function PUT(req: Request) {
   if (!user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
   const body = await req.json().catch(() => null);
   const hostId = Number(body?.hostId), monthId = Number(body?.monthId);
-  const slots: { date: string; slot: number }[] = Array.isArray(body?.slots) ? body.slots : [];
+  // Each entry is one hour: hour 10 = 10-11AM ... 23 = 11PM-12MN.
+  const hours: { date: string; hour: number }[] = Array.isArray(body?.hours) ? body.hours : [];
   if (!hostId || !monthId) return NextResponse.json({ error: 'Bad request' }, { status: 400 });
 
   if (user.role !== 'admin' && user.hostId !== hostId) return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
@@ -19,18 +20,18 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Availability for this month is locked. Ask the ops team to make changes.' }, { status: 403 });
 
   const { start, end } = monthRange(m.year, m.month);
-  const valid = slots.filter(s => typeof s?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.date) &&
-    s.date >= start && s.date <= end && Number.isInteger(s.slot) && s.slot >= 0 && s.slot <= 6);
+  const valid = hours.filter(s => typeof s?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.date) &&
+    s.date >= start && s.date <= end && Number.isInteger(s.hour) && s.hour >= 10 && s.hour <= 23);
 
   const submittedAt = await tx(async c => {
     await c.query('DELETE FROM availability WHERE host_id = $1 AND date BETWEEN $2 AND $3', [hostId, start, end]);
     if (valid.length) {
       const params: unknown[] = [hostId];
       const values = valid.map((s, i) => {
-        params.push(s.date, s.slot);
+        params.push(s.date, s.hour);
         return `($1, $${i * 2 + 2}, $${i * 2 + 3})`;
       });
-      await c.query('INSERT INTO availability(host_id, date, slot) VALUES ' + values.join(',') + ' ON CONFLICT DO NOTHING', params);
+      await c.query('INSERT INTO availability(host_id, date, hour) VALUES ' + values.join(',') + ' ON CONFLICT DO NOTHING', params);
     }
     const r = await c.query(`INSERT INTO availability_submissions(host_id, month_id) VALUES ($1, $2)
       ON CONFLICT (host_id, month_id) DO UPDATE SET submitted_at = now() RETURNING submitted_at`, [hostId, monthId]);

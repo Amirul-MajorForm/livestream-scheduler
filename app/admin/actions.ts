@@ -26,14 +26,19 @@ export async function createMonth(f: FormData) {
   await requireAdmin();
   const [y, m] = s(f, 'ym').split('-').map(Number);
   if (!y || !m) back('/admin', 'Pick a month', 'bad');
-  const exists = await one('SELECT id FROM months WHERE year = $1 AND month = $2', [y, m - 1]);
-  if (exists) back(`/admin/months/${exists.id}`);
   const copyFrom = n(f, 'copyFrom');
+  // A month may already exist because a host opened it to enter availability early. If it has no
+  // commitments or sale days yet, fill it in instead of refusing.
+  const exists = await one(`SELECT id, (SELECT count(*)::int FROM commitments WHERE month_id = months.id)
+      + (SELECT count(*)::int FROM sale_days WHERE month_id = months.id) AS filled FROM months WHERE year = $1 AND month = $2`, [y, m - 1]);
+  if (exists && (exists.filled > 0 || !copyFrom)) back(`/admin/months/${exists.id}`, exists.filled > 0 ? 'That month already exists.' : undefined);
   const id = await tx(async c => {
     const src = copyFrom ? (await c.query('SELECT * FROM months WHERE id = $1', [copyFrom])).rows[0] : null;
-    const r = await c.query(`INSERT INTO months(year, month, bau_weekday_pct, bau_weekend_pct, mega_weekday_pct, mega_weekend_pct)
-      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [y, m - 1, src?.bau_weekday_pct ?? 0.2, src?.bau_weekend_pct ?? 0.5, src?.mega_weekday_pct ?? 0.2, src?.mega_weekend_pct ?? 0.5]);
+    const pcts = [src?.bau_weekday_pct ?? 0.2, src?.bau_weekend_pct ?? 0.5, src?.mega_weekday_pct ?? 0.2, src?.mega_weekend_pct ?? 0.5];
+    const r = exists
+      ? await c.query(`UPDATE months SET bau_weekday_pct=$2, bau_weekend_pct=$3, mega_weekday_pct=$4, mega_weekend_pct=$5 WHERE id=$1 RETURNING id`, [exists.id, ...pcts])
+      : await c.query(`INSERT INTO months(year, month, bau_weekday_pct, bau_weekend_pct, mega_weekday_pct, mega_weekend_pct)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [y, m - 1, ...pcts]);
     const id = r.rows[0].id as number;
     if (src) {
       await c.query(`INSERT INTO commitments(month_id, brand_id, period, sale, platform, qty, priority, sort_order)

@@ -4,6 +4,7 @@ import { query, one } from '@/lib/db';
 import { getMonth, monthLabel, monthRange, type MonthRow } from '@/lib/data';
 import { fmtDate, fmtDateTime, fmtRange, pct, SLOTS } from '@/lib/format';
 import { isoDate } from '@/lib/workbook';
+import { mergeHours } from '@/lib/hours';
 import Flash from '@/components/Flash';
 import ConfirmButton from '@/components/ConfirmButton';
 import SubmitButton from '@/components/SubmitButton';
@@ -310,7 +311,7 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
     const host = await one('SELECT * FROM hosts WHERE id = $1', [hostId]);
     if (!host) notFound();
     const [slots, sales, sub] = await Promise.all([
-      query('SELECT date, slot FROM availability WHERE host_id = $1 AND date BETWEEN $2 AND $3', [hostId, start, end]),
+      query('SELECT date, hour FROM availability WHERE host_id = $1 AND date BETWEEN $2 AND $3', [hostId, start, end]),
       query('SELECT name, day FROM sale_days WHERE month_id = $1', [m.id]),
       one('SELECT submitted_at FROM availability_submissions WHERE host_id = $1 AND month_id = $2', [hostId, m.id]),
     ]);
@@ -319,7 +320,7 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
         <p><Link href={`/admin/months/${m.id}?tab=availability`}>&larr; All hosts</Link></p>
         <h2>Editing availability for {host.name}</h2>
         <AvailabilityGrid hostId={hostId} monthId={m.id} year={m.year} month={m.month}
-          initial={slots.map(s => s.date + '|' + s.slot)}
+          initial={slots.map(s => s.date + '|' + s.hour)}
           saleDays={Object.fromEntries(sales.map(s => [s.day, s.name]))}
           editable submittedAt={sub ? new Date(sub.submitted_at).toISOString() : null}
           pasteFor={host.name} focusPaste={sp.paste === '1'} />
@@ -328,12 +329,14 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
   }
   const [hostRows, counts, subs, users] = await Promise.all([
     query('SELECT id, name FROM hosts WHERE active ORDER BY name'),
-    query(`SELECT host_id, date, count(*)::int AS n, array_agg(slot ORDER BY slot) AS slots FROM availability WHERE date BETWEEN $1 AND $2 GROUP BY host_id, date`, [start, end]),
+    query(`SELECT host_id, date, count(*)::int AS n, array_agg(hour ORDER BY hour) AS hours FROM availability WHERE date BETWEEN $1 AND $2 GROUP BY host_id, date`, [start, end]),
     query('SELECT host_id, submitted_at FROM availability_submissions WHERE month_id = $1', [m.id]),
     query("SELECT host_id FROM users WHERE role = 'host'"),
   ]);
   const cnt = new Map(counts.map(c => [c.host_id + '|' + c.date, c.n]));
-  const slotsOf = new Map<string, number[]>(counts.map(c => [c.host_id + '|' + c.date, c.slots]));
+  const hoursOf = new Map<string, number[]>(counts.map(c => [c.host_id + '|' + c.date, c.hours]));
+  // 2-hour stream blocks a host can actually be booked in (both hours ticked).
+  const blocksOf = (hs: number[]) => [10, 12, 14, 16, 18, 20, 22].filter(b => hs.includes(b) && hs.includes(b + 1)).length;
   const sub = new Map(subs.map(s => [s.host_id, s.submitted_at]));
   const hasLogin = new Set(users.map(u => u.host_id));
   const dayList = Array.from({ length: days }, (_, i) => isoDate(m.year, m.month, i + 1));
@@ -342,8 +345,11 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
   const { sort, dir } = readSort(sp, ['host', 'status', 'slots'], 'host');
   const hosts = sortRows(hostRows, sort === 'host' ? (h: any) => h.name : sort === 'slots' ? (h: any) => totalOf(h.id) : (h: any) => statusOf(h.id), dir);
   const sortParams = { tab: 'availability' };
-  const perSlot = await query(`SELECT a.slot, count(DISTINCT a.host_id)::int AS hosts, count(*)::int AS n FROM availability a JOIN hosts h ON h.id = a.host_id
-    WHERE h.active AND a.date BETWEEN $1 AND $2 GROUP BY a.slot ORDER BY a.slot`, [start, end]);
+  // Coverage per 2-hour stream block: host-days with both hours ticked, and how many different hosts.
+  const perSlot = await query(`SELECT slot, count(*)::int AS n, count(DISTINCT host_id)::int AS hosts FROM (
+      SELECT a.host_id, a.date, (a.hour - 10) / 2 AS slot FROM availability a JOIN hosts h ON h.id = a.host_id
+      WHERE h.active AND a.date BETWEEN $1 AND $2 GROUP BY a.host_id, a.date, (a.hour - 10) / 2 HAVING count(*) = 2) b
+    GROUP BY slot ORDER BY slot`, [start, end]);
 
   return (
     <>
@@ -386,7 +392,7 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
             <tr>
               <SortHeader label="Host" k="host" sort={sort} dir={dir} params={sortParams} />
               <SortHeader label="Status" k="status" sort={sort} dir={dir} params={sortParams} />
-              <SortHeader label="Slots (month)" k="slots" sort={sort} dir={dir} params={sortParams} className="num" />
+              <SortHeader label="Hours (month)" k="slots" sort={sort} dir={dir} params={sortParams} className="num" />
               {dayList.map(d => {
                 const dow = new Date(d + 'T00:00:00Z').getUTCDay();
                 return (
@@ -409,12 +415,13 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
                         : <span className="badge warn">Not yet</span>}
                     {!hasLogin.has(h.id) && <span className="badge" title="No login: ops must enter availability"> No login</span>}
                   </td>
-                  <td className="num" data-tip={`${h.name}:\n${total} slots this month = ${total * 2} hours available`}>{total}</td>
+                  <td className="num" data-tip={`${h.name}:\n${total} hours available this month`}>{total}</td>
                   {dayList.map(d => {
                     const v = cnt.get(h.id + '|' + d) || 0;
-                    const tip = h.name + ', ' + fmtDate(d) + ':\n' + (v ? (slotsOf.get(h.id + '|' + d) || []).map(i => SLOTS[i]).join('\n') + `\n(${v} of 7 slots, ${v * 2} h)` : 'Not available');
+                    const hs = hoursOf.get(h.id + '|' + d) || [];
+                    const tip = h.name + ', ' + fmtDate(d) + ':\n' + (v ? mergeHours(hs) + `\n${v} of 14 hours \u00b7 bookable in ${blocksOf(hs)} of 7 two-hour blocks` : 'Not available');
                     const wk = [0, 6].includes(new Date(d + 'T00:00:00Z').getUTCDay());
-                    return <td key={d} data-tip={tip} className={(v === 0 ? 'heat0' : v <= 2 ? 'heat1' : v <= 4 ? 'heat2' : 'heat3') + (wk && v === 0 ? ' wkend' : '')}>{v || '·'}</td>;
+                    return <td key={d} data-tip={tip} className={(v === 0 ? 'heat0' : v <= 4 ? 'heat1' : v <= 9 ? 'heat2' : 'heat3') + (wk && v === 0 ? ' wkend' : '')}>{v || '\u00b7'}</td>;
                   })}
                 </tr>
               );
@@ -423,10 +430,10 @@ async function AvailabilityTab({ m, hostId, sp }: { m: MonthRow; hostId: number 
         </table>
       </div>
       <p className="small muted">
-        Each number is how many of the day\u2019s seven 2-hour slots (10AM\u201312MN) the host ticked: 7 = free all day, \u00b7 = not available.
-        <strong> Hover a number</strong> to see exactly which times. <em>Slots (month)</em> is the month total (\u00d7 2 for hours). Click a name to view or edit the full grid.
+        Each number is how many hours (out of 14, 10AM&ndash;12MN) the host ticked that day: 14 = free all day, &middot; = not available.
+        <strong> Hover a number</strong> to see exactly which times and how many 2-hour stream blocks they can be booked in. <em>Hours (month)</em> is the month total. Click a name to view or edit the full grid.
       </p>
-      <h3>Coverage by time slot</h3>
+      <h3>Coverage by 2-hour stream block <span className="small muted" style={{ fontWeight: 400 }}>(host-days with both hours ticked)</span></h3>
       <div className="stats">
         {SLOTS.map((s, i) => {
           const r = perSlot.find(p => p.slot === i);
