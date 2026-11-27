@@ -8,6 +8,7 @@ export interface SaleRow {
   date: string;
   start_min: number;
   end_min: number;
+  host_id: number | null;
   host_name: string;
   brand: string;
   period: string;
@@ -29,12 +30,12 @@ const keyOf = (x: { date: string; start_min: number; brand: string; platform: st
   [x.date, x.start_min, x.brand, x.platform, x.host_name || ''].join('|');
 
 /** Every published stream of the month with its entered sales and worked-out fee, plus orphaned sales entries. */
-export async function loadMonthSales(monthId: number, runId: number | null) {
+export async function loadMonthSales(monthId: number, runId: number | null, ratesIn?: Rate[]) {
   const [streams, sales, rates] = await Promise.all([
-    runId ? query(`SELECT id, date, start_min, end_min, host_name, brand, period, platform, status
+    runId ? query(`SELECT id, date, start_min, end_min, host_id, host_name, brand, period, platform, status
       FROM scheduled_streams WHERE run_id = $1 ORDER BY date, start_min, brand`, [runId]) : Promise.resolve([]),
     query('SELECT * FROM stream_sales WHERE month_id = $1', [monthId]),
-    loadRates(),
+    ratesIn ? Promise.resolve(ratesIn) : loadRates(),
   ]);
   const salesByKey = new Map(sales.map(s => [keyOf(s as never), s]));
   const used = new Set<string>();
@@ -43,12 +44,12 @@ export async function loadMonthSales(monthId: number, runId: number | null) {
     const sale = salesByKey.get(k);
     if (sale) used.add(k);
     return build(rates, { streamId: st.id, saleId: sale?.id ?? null, date: st.date, start_min: st.start_min, end_min: st.end_min,
-      host_name: st.host_name || '', brand: st.brand, period: st.period, platform: st.platform, status: st.status,
+      host_id: st.host_id ?? null, host_name: st.host_name || '', brand: st.brand, period: st.period, platform: st.platform, status: st.status,
       tiktok_gmv: sale?.tiktok_gmv ?? null, shopee_gmv: sale?.shopee_gmv ?? null, pay_status: sale?.pay_status ?? '', notes: sale?.notes ?? '',
       rate_label: sale?.rate_label ?? '', tier_recorded: sale?.tier ?? '', recorded_fee: sale?.recorded_fee ?? null, fee_blank: !!sale?.fee_blank });
   });
   const orphans: SaleRow[] = sales.filter(s => !used.has(keyOf(s as never))).map(s => build(rates, {
-    streamId: null, saleId: s.id, date: s.date, start_min: s.start_min, end_min: s.end_min, host_name: s.host_name, brand: s.brand,
+    streamId: null, saleId: s.id, date: s.date, start_min: s.start_min, end_min: s.end_min, host_id: null, host_name: s.host_name, brand: s.brand,
     period: s.period, platform: s.platform, status: '', tiktok_gmv: s.tiktok_gmv, shopee_gmv: s.shopee_gmv, pay_status: s.pay_status, notes: s.notes,
     rate_label: s.rate_label, tier_recorded: s.tier, recorded_fee: s.recorded_fee, fee_blank: !!s.fee_blank,
   })).sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min);

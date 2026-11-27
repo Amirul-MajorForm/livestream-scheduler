@@ -570,3 +570,14 @@ tr.total-row td { background: var(--surface-alt); font-weight: 600; }
 .sales-scroll + .save-bar { border-top: 0; border-radius: 0 0 var(--r-tile) var(--r-tile); }
 @media (max-width: 768px) { .sales-scroll { max-height: calc(100vh - 160px); } }
 .rec-mark { display: inline-block; margin-left: 3px; font-size: 9px; font-weight: 700; color: var(--text-muted); vertical-align: super; }
+
+/* Host earnings */
+.earn-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.earn-table td.bar-col, .earn-table th.bar-col { width: 28%; }
+.earn-table .bar { margin: 0; height: 6px; }
+.earn-table tr.sel td { background: var(--accent-light); }
+.past-months { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 4px 8px 4px 10px; border: 1px solid var(--border); border-radius: var(--r-tile); background: var(--surface); }
+.past-months .small { margin-right: 4px; }
+.month-pills .past-months a.past { padding: 3px 8px; border: 0; border-radius: var(--r-badge); font-size: 12.5px; background: transparent; }
+.month-pills .past-months a.past:hover { background: var(--surface-alt); }
+.month-pills .past-months a.past.on { background: var(--accent-light); color: var(--accent); }
