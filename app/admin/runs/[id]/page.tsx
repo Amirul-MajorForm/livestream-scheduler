@@ -335,7 +335,7 @@ export default async function RunPage({ params, searchParams }: { params: Promis
                       <form action={setStreamStatus}>
                         <input type="hidden" name="id" value={s.id} /><input type="hidden" name="runId" value={run.id} />
                         <input type="hidden" name="returnTo" value={qs({})} />
-                        <AutoSubmitSelect name="status" defaultValue={s.status} label={`Status of ${s.brand} ${fmtDate(s.date)}`}
+                        <AutoSubmitSelect key={s.id + s.status} name="status" defaultValue={s.status} label={`Status of ${s.brand} ${fmtDate(s.date)}`}
                           className={'status-select ' + s.status}
                           options={[{ value: 'tentative', label: 'Tentative' }, { value: 'confirmed', label: '\u2713 Confirmed' }]} />
                       </form>
