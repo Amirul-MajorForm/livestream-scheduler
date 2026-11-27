@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { requireUser } from '@/lib/auth';
 import { one, query } from '@/lib/db';
 import AppShell, { type NavLink } from '@/components/AppShell';
+import { HOST_LINKS } from '@/lib/hostNav';
 import Flash from '@/components/Flash';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const sp = await searchParams;
   const links: NavLink[] = user.role === 'admin'
     ? [{ href: '/admin', label: 'Back to admin', icon: 'back' }]
-    : [{ href: '/host', label: 'My schedule', icon: 'calendar' }];
+    : HOST_LINKS;
   return (
     <AppShell user={user} links={links}>
       <div style={{ maxWidth: 480 }}>

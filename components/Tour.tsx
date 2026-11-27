@@ -104,8 +104,8 @@ const HOST_STEPS: Step[] = [
     body: 'Press Save availability when you’re done. You can come back and change it until the ops team locks the month.' },
   { on: hostTab('schedule'), go: toHost('schedule'), target: 'host-schedule', title: 'Your schedule',
     body: 'Once the ops team confirms the schedule, your streams appear here with date, time, brand, platform and room. Switch between List and Calendar. Earlier months are under “Earlier”.' },
-  { on: hostTab('earnings'), go: toHost('earnings'), target: 'host-earnings', title: 'Your earnings',
-    body: 'What you’ve earned this year: totals, what’s been paid and what’s still to come, then by month, by brand and stream by stream. Click a month or brand to narrow the list. Shared streams show your half of the fee.' },
+  { on: l => l.pathname === '/host/earnings', go: () => '/host/earnings', target: 'host-earnings', title: 'Your earnings',
+    body: 'My earnings in the menu shows what you’ve earned this year: totals, what’s been paid and what’s still to come, then by month, by brand and stream by stream. Click a month or brand to narrow the list. Shared streams show your half of the fee.' },
 ];
 
 export default function Tour({ role }: { role: 'admin' | 'host' }) {
