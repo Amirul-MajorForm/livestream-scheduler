@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { parseDateCell, parseTimeCell } from './workbook';
 import { matchBrand, matchHost } from './preplannedFile';
-import { PAY_STATUSES } from './earnings';
+import { PAY_STATUSES, splitHosts } from './earnings';
 
 /**
  * Reads the 2026 stream log: the Revenue Sheet's "Internal Agency & Total Fees" tab or the Master
@@ -127,10 +127,17 @@ export async function readStreamFile(buf: ArrayBuffer, year: number, ref: {
     const hostText = text(row.getCell(head.host).value);
     let h = hostCache.get(hostText);
     if (!h) {
-      // "Esther, Naomi" is one stream with two hosts: kept as written, not linked to one host.
-      const m = hostText && !/[,&/]/.test(hostText) ? matchHost(hostText, ref.hosts).host : undefined;
-      h = m ? { id: m.id, name: m.name } : { id: null, name: hostText };
-      if (!m && hostText) unknownHosts.add(hostText);
+      const parts = splitHosts(hostText);
+      if (parts.length > 1) {
+        // "Esther, Naomi": one stream, two hosts. Each name is matched to the app's spelling; the fee
+        // is shared equally in per-host views. Not linked to a single host login.
+        const names = parts.map(p => { const m = matchHost(p, ref.hosts).host; if (!m) unknownHosts.add(p); return m?.name ?? p; });
+        h = { id: null, name: names.join(', ') };
+      } else {
+        const m = hostText ? matchHost(hostText, ref.hosts).host : undefined;
+        h = m ? { id: m.id, name: m.name } : { id: null, name: hostText };
+        if (!m && hostText) unknownHosts.add(hostText);
+      }
       hostCache.set(hostText, h);
     }
     const b = matchBrand(brandText, ref.brands).brand;

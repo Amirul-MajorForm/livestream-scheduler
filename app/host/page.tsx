@@ -57,7 +57,9 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
     const streams = current.published_run_id
       ? await query<StreamRow>(
         `SELECT id, date, start_min, end_min, host_name, brand, period, sale, platform, room, status
-         FROM scheduled_streams WHERE run_id = $1 AND host_id = $2 ORDER BY date, start_min`, [current.published_run_id, user.hostId])
+         FROM scheduled_streams WHERE run_id = $1
+           AND (host_id = $2 OR lower($3) = ANY(regexp_split_to_array(lower(host_name), '\\s*(,|&|/|\\+| and )\\s*')))
+         ORDER BY date, start_min`, [current.published_run_id, user.hostId, host?.name || ''])
       : [];
     const hours = Math.round(streams.reduce((a, x) => a + (x.end_min - x.start_min), 0) / 6) / 10;
     content = current.published_run_id ? (

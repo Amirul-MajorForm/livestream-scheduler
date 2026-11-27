@@ -14,7 +14,7 @@ import { SelectAllBox, BulkButton } from '@/components/BulkSelect';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
 import SalesTable from '@/components/SalesTable';
 import { loadMonthSales, hasSales, missingRate, type SaleRow } from '@/lib/salesData';
-import { money } from '@/lib/earnings';
+import { money, splitHosts } from '@/lib/earnings';
 import {
   updateMonthRules, addSaleDay, deleteSaleDay, addCommitment, updateCommitmentQty, deleteCommitment,
   saveSales, removeSale,
@@ -545,27 +545,36 @@ async function SalesTab({ m, sp }: { m: MonthRow; sp: SP }) {
     );
   }
   const { rows, orphans } = await loadMonthSales(m.id, m.published_run_id);
-  const hosts = [...new Set(rows.map(r => r.host_name).filter(Boolean))].sort();
+  const hosts = [...new Set(rows.flatMap(r => splitHosts(r.host_name)))].sort();
   const brands = [...new Set(rows.map(r => r.brand))].sort();
-  const shown = rows.filter(r => (!sp.sh || r.host_name === sp.sh) && (!sp.sb || r.brand === sp.sb));
+  const shown = rows.filter(r => (!sp.sh || splitHosts(r.host_name).includes(sp.sh)) && (!sp.sb || r.brand === sp.sb));
   const q = new URLSearchParams({ tab: 'sales', ...(sp.sh ? { sh: sp.sh } : {}), ...(sp.sb ? { sb: sp.sb } : {}) });
   const returnTo = `/admin/months/${m.id}?${q}`;
 
   // Earnings so far, per host and per brand (all streams, ignoring the filter).
-  type Agg = { streams: number; entered: number; hours: number; tt: number; sp: number; fee: number; agency: number; noRate: number };
-  const blank = (): Agg => ({ streams: 0, entered: 0, hours: 0, tt: 0, sp: 0, fee: 0, agency: 0, noRate: 0 });
-  const add = (map: Map<string, Agg>, k: string, r: SaleRow) => {
+  // A stream with two hosts ("Esther, Naomi") counts in full for each host's streams and hours,
+  // while its GMV, talent fee and agency share are divided equally between them.
+  type Agg = { streams: number; shared: number; entered: number; hours: number; tt: number; sp: number; fee: number; agency: number; noRate: number };
+  const blank = (): Agg => ({ streams: 0, shared: 0, entered: 0, hours: 0, tt: 0, sp: 0, fee: 0, agency: 0, noRate: 0 });
+  const add = (map: Map<string, Agg>, k: string, r: SaleRow, share = 1) => {
     const a = map.get(k) || blank();
     a.streams++; a.hours += (r.end_min - r.start_min) / 60;
+    if (share < 1) a.shared++;
     if (hasSales(r)) {
-      a.entered++; a.tt += r.tiktok_gmv ?? 0; a.sp += r.shopee_gmv ?? 0;
-      if (missingRate(r)) a.noRate++; else if (r.result.fee != null) { a.fee += r.result.fee; a.agency += r.result.agency ?? 0; }
+      a.entered++; a.tt += (r.tiktok_gmv ?? 0) * share; a.sp += (r.shopee_gmv ?? 0) * share;
+      if (missingRate(r)) a.noRate++; else if (r.result.fee != null) { a.fee += r.result.fee * share; a.agency += (r.result.agency ?? 0) * share; }
     }
     map.set(k, a);
   };
   const byHost = new Map<string, Agg>(), byBrand = new Map<string, Agg>();
-  [...rows, ...orphans].forEach(r => { add(byHost, r.host_name || 'No host', r); add(byBrand, r.brand, r); });
-  const sum = [...byHost.values()].reduce((a, x) => { (Object.keys(a) as (keyof Agg)[]).forEach(k => { a[k] += x[k]; }); return a; }, blank());
+  [...rows, ...orphans].forEach(r => {
+    const hs = splitHosts(r.host_name);
+    if (!hs.length) add(byHost, 'No host', r);
+    hs.forEach(h => add(byHost, h, r, 1 / hs.length));
+    add(byBrand, r.brand, r);
+  });
+  // Month totals count each stream once (the brand table has one entry per stream).
+  const sum = [...byBrand.values()].reduce((a, x) => { (Object.keys(a) as (keyof Agg)[]).forEach(k => { a[k] += x[k]; }); return a; }, blank());
   const r2 = (x: number) => Math.round(x * 100) / 100;
 
   const AggTable = ({ title, map, first }: { title: string; map: Map<string, Agg>; first: string }) => (
@@ -578,7 +587,7 @@ async function SalesTab({ m, sp }: { m: MonthRow; sp: SP }) {
         <tbody>
           {[...map].sort((a, b) => b[1].fee - a[1].fee || a[0].localeCompare(b[0])).map(([k, a]) => (
             <tr key={k}>
-              <td><strong>{k}</strong> {a.noRate > 0 && <span className="badge bad" data-tip={`${a.noRate} stream(s) with sales have no matching rate, so they aren't in the fee yet.`}>{a.noRate} no rate</span>}</td>
+              <td><strong>{k}</strong> {a.shared > 0 && <span className="badge" data-tip={`${a.shared} stream(s) shared with another host: GMV and fee are split equally, hours count in full.`}>{a.shared} shared</span>} {a.noRate > 0 && <span className="badge bad" data-tip={`${a.noRate} stream(s) with sales have no matching rate, so they aren't in the fee yet.`}>{a.noRate} no rate</span>}</td>
               <td className="num">{a.streams}</td><td className="num">{a.entered}</td><td className="num">{r2(a.hours)}</td>
               <td className="num">{money(a.tt)}</td><td className="num">{money(a.sp)}</td><td className="num">{money(a.tt + a.sp)}</td>
               <td className="num"><strong>{money(a.fee)}</strong></td><td className="num">{money(a.agency)}</td>
@@ -621,6 +630,7 @@ async function SalesTab({ m, sp }: { m: MonthRow; sp: SP }) {
         }))} />
 
       <h2>Earnings by host</h2>
+      <p className="small muted" style={{ marginTop: -4 }}>A stream with two hosts shows its full fee in the list above; here its GMV and fee are split equally between the hosts.</p>
       <AggTable title="Month" map={byHost} first="Host" />
       <h2>By brand</h2>
       <AggTable title="Month" map={byBrand} first="Brand" />

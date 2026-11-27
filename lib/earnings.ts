@@ -128,4 +128,7 @@ export const money = (x: number | null | undefined) =>
   x == null ? '—' : '$' + x.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const pctLabel = (x: number) => `${Math.round(x * 10000) / 100}%`;
 
+/** "Esther, Naomi" -> ['Esther', 'Naomi']: a stream with several hosts, whose fee is shared equally. */
+export const splitHosts = (name: string) => (name || '').split(/\s*(?:,|&|\/|\+|\band\b)\s*/i).map(x => x.trim()).filter(Boolean);
+
 export const PAY_STATUSES = ['', 'Invoice Pending', 'Invoice Sent', 'Paid to Host, Pending Payment From Brand', 'Paid'] as const;

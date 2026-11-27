@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rateGroupFor, computeFee, streamTypeOf, type Rate } from '../lib/earnings';
+import { rateGroupFor, computeFee, streamTypeOf, splitHosts, type Rate } from '../lib/earnings';
 
 // Made-up rates that exercise every rule (not the real rate card).
 let id = 0;
@@ -63,4 +63,13 @@ test('stream type from platform text', () => {
   assert.equal(streamTypeOf('TikTok & Shopee'), 'dual');
   assert.equal(streamTypeOf('Shopee, TikTok'), 'dual');
   assert.equal(streamTypeOf('Shopee'), 'single');
+});
+
+test('shared streams: host names split for per-host shares', () => {
+  assert.deepEqual(splitHosts('Esther, Naomi'), ['Esther', 'Naomi']);
+  assert.deepEqual(splitHosts('Ler & Zul'), ['Ler', 'Zul']);
+  assert.deepEqual(splitHosts('Zul/Pau'), ['Zul', 'Pau']);
+  assert.deepEqual(splitHosts('Xin Hui (Felicia)'), ['Xin Hui (Felicia)']);
+  assert.deepEqual(splitHosts('Amanda Koh'), ['Amanda Koh']);
+  assert.deepEqual(splitHosts(''), []);
 });
