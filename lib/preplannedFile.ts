@@ -138,7 +138,7 @@ const words = (s: string) => s.toLowerCase().replace(/[()\[\].,&]/g, ' ').split(
 const FILLER = new Set(['professional', 'pro', 'official', 'store', 'sg', 'singapore']);
 
 /** Brand by exact name (any case), else ignoring filler words ("Shiseido Professional" -> Shiseido). */
-function matchBrand<B extends { name: string }>(text: string, brands: B[]): { brand?: B; fuzzy: boolean } {
+export function matchBrand<B extends { name: string }>(text: string, brands: B[]): { brand?: B; fuzzy: boolean } {
   const t = text.trim().toLowerCase();
   const exact = brands.find(b => b.name.toLowerCase() === t);
   if (exact) return { brand: exact, fuzzy: false };

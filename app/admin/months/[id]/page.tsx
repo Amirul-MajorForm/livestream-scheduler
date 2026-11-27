@@ -12,8 +12,12 @@ import AvailabilityGrid from '@/components/AvailabilityGrid';
 import PreplannedUpload from '@/components/PreplannedUpload';
 import { SelectAllBox, BulkButton } from '@/components/BulkSelect';
 import SortHeader, { readSort, sortRows } from '@/components/SortHeader';
+import SalesTable from '@/components/SalesTable';
+import { loadMonthSales, hasSales, type SaleRow } from '@/lib/salesData';
+import { money } from '@/lib/earnings';
 import {
   updateMonthRules, addSaleDay, deleteSaleDay, addCommitment, updateCommitmentQty, deleteCommitment,
+  saveSales, removeSale,
   addPreplanned, deletePreplanned, deletePreplannedMany, updatePreplannedHost, setAvailabilityOpen, runSchedule, deleteMonth, unpublishMonth,
 } from '../../actions';
 
@@ -23,10 +27,11 @@ const TABS = [
   ['preplanned', 'Pre-planned streams'],
   ['availability', 'Host availability'],
   ['schedule', 'Schedule'],
+  ['sales', 'Sales & earnings'],
 ] as const;
 const PLATFORMS = ['TikTok', 'Shopee', 'TikTok & Shopee'];
 
-type SP = { tab?: string; host?: string; paste?: string; upload?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
+type SP = { tab?: string; host?: string; sh?: string; sb?: string; paste?: string; upload?: string; sort?: string; dir?: string; ok?: string; bad?: string; t?: string };
 
 export default async function MonthPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SP> }) {
   const { id } = await params;
@@ -57,6 +62,7 @@ export default async function MonthPage({ params, searchParams }: { params: Prom
       {tab === 'preplanned' && <PreplannedTab m={m} sp={sp} />}
       {tab === 'availability' && <AvailabilityTab m={m} hostId={sp.host ? Number(sp.host) : null} sp={sp} />}
       {tab === 'schedule' && <ScheduleTab m={m} />}
+      {tab === 'sales' && <SalesTab m={m} sp={sp} />}
       </div>
     </>
   );
@@ -525,6 +531,123 @@ async function ScheduleTab({ m }: { m: MonthRow }) {
           <input type="hidden" name="monthId" value={m.id} />
           <ConfirmButton message="Hide the schedule from hosts?">Unpublish</ConfirmButton>
         </form>
+      )}
+    </>
+  );
+}
+
+async function SalesTab({ m, sp }: { m: MonthRow; sp: SP }) {
+  if (!m.published_run_id) {
+    return (
+      <div className="card">
+        <p style={{ margin: 0 }}>Sales are entered against the published schedule. <Link href={`/admin/months/${m.id}?tab=schedule`}>Publish a version</Link> first, then come back here.</p>
+      </div>
+    );
+  }
+  const { rows, orphans } = await loadMonthSales(m.id, m.published_run_id);
+  const hosts = [...new Set(rows.map(r => r.host_name).filter(Boolean))].sort();
+  const brands = [...new Set(rows.map(r => r.brand))].sort();
+  const shown = rows.filter(r => (!sp.sh || r.host_name === sp.sh) && (!sp.sb || r.brand === sp.sb));
+  const q = new URLSearchParams({ tab: 'sales', ...(sp.sh ? { sh: sp.sh } : {}), ...(sp.sb ? { sb: sp.sb } : {}) });
+  const returnTo = `/admin/months/${m.id}?${q}`;
+
+  // Earnings so far, per host and per brand (all streams, ignoring the filter).
+  type Agg = { streams: number; entered: number; hours: number; tt: number; sp: number; fee: number; agency: number; noRate: number };
+  const blank = (): Agg => ({ streams: 0, entered: 0, hours: 0, tt: 0, sp: 0, fee: 0, agency: 0, noRate: 0 });
+  const add = (map: Map<string, Agg>, k: string, r: SaleRow) => {
+    const a = map.get(k) || blank();
+    a.streams++; a.hours += (r.end_min - r.start_min) / 60;
+    if (hasSales(r)) {
+      a.entered++; a.tt += r.tiktok_gmv ?? 0; a.sp += r.shopee_gmv ?? 0;
+      if (r.result.fee == null) a.noRate++; else { a.fee += r.result.fee; a.agency += r.result.agency ?? 0; }
+    }
+    map.set(k, a);
+  };
+  const byHost = new Map<string, Agg>(), byBrand = new Map<string, Agg>();
+  [...rows, ...orphans].forEach(r => { add(byHost, r.host_name || 'No host', r); add(byBrand, r.brand, r); });
+  const sum = [...byHost.values()].reduce((a, x) => { (Object.keys(a) as (keyof Agg)[]).forEach(k => { a[k] += x[k]; }); return a; }, blank());
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+
+  const AggTable = ({ title, map, first }: { title: string; map: Map<string, Agg>; first: string }) => (
+    <div className="table-wrap">
+      <table className="compact">
+        <thead>
+          <tr><th>{first}</th><th className="num">Streams</th><th className="num">With sales</th><th className="num">Hours</th>
+            <th className="num">TikTok GMV</th><th className="num">Shopee GMV</th><th className="num">Total GMV</th><th className="num">Talent fee</th><th className="num">Agency</th></tr>
+        </thead>
+        <tbody>
+          {[...map].sort((a, b) => b[1].fee - a[1].fee || a[0].localeCompare(b[0])).map(([k, a]) => (
+            <tr key={k}>
+              <td><strong>{k}</strong> {a.noRate > 0 && <span className="badge bad" data-tip={`${a.noRate} stream(s) with sales have no matching rate, so they aren't in the fee yet.`}>{a.noRate} no rate</span>}</td>
+              <td className="num">{a.streams}</td><td className="num">{a.entered}</td><td className="num">{r2(a.hours)}</td>
+              <td className="num">{money(a.tt)}</td><td className="num">{money(a.sp)}</td><td className="num">{money(a.tt + a.sp)}</td>
+              <td className="num"><strong>{money(a.fee)}</strong></td><td className="num">{money(a.agency)}</td>
+            </tr>
+          ))}
+          <tr className="total-row">
+            <td>{title} total</td><td className="num">{sum.streams}</td><td className="num">{sum.entered}</td><td className="num">{r2(sum.hours)}</td>
+            <td className="num">{money(sum.tt)}</td><td className="num">{money(sum.sp)}</td><td className="num">{money(sum.tt + sum.sp)}</td>
+            <td className="num"><strong>{money(sum.fee)}</strong></td><td className="num">{money(sum.agency)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="toolbar-row">
+        <form className="inline" action={`/admin/months/${m.id}`}>
+          <input type="hidden" name="tab" value="sales" />
+          <select name="sh" defaultValue={sp.sh || ''}><option value="">All hosts</option>{hosts.map(h => <option key={h}>{h}</option>)}</select>
+          <select name="sb" defaultValue={sp.sb || ''}><option value="">All brands</option>{brands.map(b => <option key={b}>{b}</option>)}</select>
+          <button type="submit">Show</button>
+        </form>
+        <span className="small muted">{shown.length} of {rows.length} published streams</span>
+        <span style={{ marginLeft: 'auto' }} className="inline">
+          <a className="btn" href={`/api/months/${m.id}/sales`}>Export CSV</a>
+          <Link className="btn" href="/admin/rates">Payment rates</Link>
+        </span>
+      </div>
+      <SalesTable
+        key={returnTo + (sp.t || '')}
+        monthId={m.id} returnTo={returnTo} action={saveSales}
+        rows={shown.map(r => ({
+          id: r.streamId!, date: r.date, dateLabel: fmtDate(r.date), start_min: r.start_min, end_min: r.end_min, host_name: r.host_name,
+          brand: r.brand, period: r.period, platform: r.platform, confirmed: r.status === 'confirmed',
+          tt: r.tiktok_gmv == null ? '' : String(r.tiktok_gmv), sp: r.shopee_gmv == null ? '' : String(r.shopee_gmv),
+          pay: r.pay_status, notes: r.notes, group: r.group,
+        }))} />
+
+      <h2>Earnings by host</h2>
+      <AggTable title="Month" map={byHost} first="Host" />
+      <h2>By brand</h2>
+      <AggTable title="Month" map={byBrand} first="Brand" />
+
+      {orphans.length > 0 && (
+        <>
+          <h2>Sales for streams no longer in the published schedule</h2>
+          <p className="small muted">These were entered for a stream that has since moved or been removed. They still count in the totals above; remove them if they&rsquo;re no longer right.</p>
+          <div className="table-wrap">
+            <table className="compact">
+              <thead><tr><th>Date</th><th>Time</th><th>Host</th><th>Brand</th><th>Platform</th><th className="num">Total GMV</th><th className="num">Talent fee</th><th></th></tr></thead>
+              <tbody>
+                {orphans.map(o => (
+                  <tr key={o.saleId}>
+                    <td>{fmtDate(o.date)}</td><td>{fmtRange(o.start_min, o.end_min)}</td><td>{o.host_name || '\u2014'}</td><td>{o.brand}</td><td>{o.platform}</td>
+                    <td className="num">{money(o.result.totalGmv)}</td><td className="num">{money(o.result.fee)}</td>
+                    <td>
+                      <form action={removeSale}>
+                        <input type="hidden" name="id" value={o.saleId!} /><input type="hidden" name="returnTo" value={returnTo} />
+                        <ConfirmButton className="link danger" message="Remove this sales entry?">Remove</ConfirmButton>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </>
   );

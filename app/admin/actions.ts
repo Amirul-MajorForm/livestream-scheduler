@@ -508,3 +508,130 @@ export async function savePlannerNotes(f: FormData) {
   await saveSetting('planner_notes', String(f.get('notes') ?? '').slice(0, 20000), user.id);
   back('/admin/rules', 'Notes saved');
 }
+
+/* ---------------- Payment rates ---------------- */
+
+function rateFromForm(f: FormData) {
+  const numOrNull = (k: string) => { const v = s(f, k).replace(/[$,\s]/g, ''); return v === '' ? null : Number(v); };
+  const pctOf = (k: string) => { const v = s(f, k).replace(/[%\s]/g, ''); return v === '' ? 0 : Number(v) / 100; };
+  const r = {
+    brand: s(f, 'brand'), label: s(f, 'label'), account: s(f, 'account') || 'Brand',
+    period: ['BAU', 'Mega', 'All'].includes(s(f, 'period')) ? s(f, 'period') : 'All',
+    stream_type: ['single', 'dual', 'any'].includes(s(f, 'stream_type')) ? s(f, 'stream_type') : 'any',
+    method: s(f, 'method') === 'split' ? 'split' : 'base_comms',
+    tier: s(f, 'tier'),
+    gmv_min: numOrNull('gmv_min'), gmv_max: numOrNull('gmv_max'),
+    base_per_hour: numOrNull('base_per_hour') ?? 0,
+    total_comms: pctOf('total_comms'), tiktok_comms: pctOf('tiktok_comms'), shopee_comms: pctOf('shopee_comms'),
+    agency_comms: s(f, 'agency_comms') === '' ? 0.2 : pctOf('agency_comms'),
+    valid_from: s(f, 'valid_from') || null, valid_to: s(f, 'valid_to') || null,
+    active: s(f, 'active') !== 'off',
+    notes: s(f, 'notes'),
+  };
+  const nums = [r.gmv_min, r.gmv_max, r.base_per_hour, r.total_comms, r.tiktok_comms, r.shopee_comms, r.agency_comms];
+  if (!r.brand) return { error: 'Brand is required' };
+  if (nums.some(x => x != null && !isFinite(x))) return { error: 'Numbers only in the amount and % fields' };
+  if (r.valid_from && r.valid_to && r.valid_to < r.valid_from) return { error: '"Valid to" is before "valid from"' };
+  return { r };
+}
+const RATE_COLS = ['brand', 'label', 'account', 'period', 'stream_type', 'method', 'tier', 'gmv_min', 'gmv_max', 'base_per_hour',
+  'total_comms', 'tiktok_comms', 'shopee_comms', 'agency_comms', 'valid_from', 'valid_to', 'active', 'notes'] as const;
+const ratesBack = (f: FormData) => s(f, 'returnTo').startsWith('/admin/rates') ? s(f, 'returnTo') : '/admin/rates';
+
+export async function addRate(f: FormData) {
+  await requireAdmin();
+  const { r, error } = rateFromForm(f);
+  if (!r) back(ratesBack(f), error, 'bad');
+  await query(`INSERT INTO rate_cards (${RATE_COLS.join(',')}) VALUES (${RATE_COLS.map((_, i) => '$' + (i + 1)).join(',')})`,
+    RATE_COLS.map(k => r[k]));
+  back(ratesBack(f), `Rate added for ${r.brand}`);
+}
+
+export async function updateRate(f: FormData) {
+  await requireAdmin();
+  const id = Number(s(f, 'id'));
+  const { r, error } = rateFromForm(f);
+  if (!r) back(ratesBack(f), error, 'bad');
+  await query(`UPDATE rate_cards SET ${RATE_COLS.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1`,
+    [id, ...RATE_COLS.map(k => r[k])]);
+  back(ratesBack(f) + '#rate-' + id, `Saved ${r.brand}${r.label ? ' ' + r.label : ''}${r.tier ? ' ' + r.tier : ''}`);
+}
+
+export async function duplicateRate(f: FormData) {
+  await requireAdmin();
+  const row = await one(`INSERT INTO rate_cards (${RATE_COLS.join(',')})
+    SELECT ${RATE_COLS.map(k => k === 'label' ? `label || ' (copy)'` : k).join(',')} FROM rate_cards WHERE id = $1 RETURNING id`, [Number(s(f, 'id'))]);
+  back(ratesBack(f) + (row ? '#rate-' + row.id : ''), 'Copied. Change the version name, dates and amounts on the new row, then Save.');
+}
+
+export async function removeRate(f: FormData) {
+  await requireAdmin();
+  await query('DELETE FROM rate_cards WHERE id = $1', [Number(s(f, 'id'))]);
+  back(ratesBack(f), 'Rate removed');
+}
+
+export async function importRates(f: FormData) {
+  await requireAdmin();
+  const file = f.get('file');
+  if (!(file instanceof File) || !file.size) back('/admin/rates', 'Choose the .xlsx file first', 'bad');
+  const { readRatesWorkbook, insertRates } = await import('@/lib/rates');
+  let res: Awaited<ReturnType<typeof readRatesWorkbook>>;
+  const brands = (await query('SELECT name FROM brands')).map(b => b.name as string);
+  try { res = await readRatesWorkbook(await file.arrayBuffer(), brands); } catch (e) { back('/admin/rates', (e as Error).message, 'bad'); }
+  if (!res.rates.length) back('/admin/rates', 'No rates found in the Reference tab', 'bad');
+  await insertRates(res.rates, s(f, 'mode') === 'replace');
+  back('/admin/rates', `Imported ${res.rates.length} rate rows` +
+    (res.renamed.length ? `. Matched to your brand names: ${res.renamed.join(', ')}` : '') +
+    (res.inactive.length ? `. Switched off because they aren't in the Version tab: ${res.inactive.join(', ')}` : '') +
+    (res.skipped.length ? `. Skipped ${res.skipped.length} rows with no amounts (${res.skipped.join('; ')})` : ''));
+}
+
+/* ---------------- Sales ---------------- */
+
+export async function saveSales(f: FormData) {
+  const user = await requireAdmin();
+  const monthId = Number(s(f, 'monthId'));
+  const m = await one('SELECT published_run_id FROM months WHERE id = $1', [monthId]);
+  const returnTo = s(f, 'returnTo').startsWith('/admin/months/') ? s(f, 'returnTo') : `/admin/months/${monthId}?tab=sales`;
+  if (!m?.published_run_id) back(returnTo, 'Publish a schedule first: sales are entered against published streams', 'bad');
+  const ids = f.getAll('row').map(Number).filter(Boolean);
+  if (!ids.length) back(returnTo, 'Nothing to save');
+  const streams = await query(`SELECT id, date, start_min, end_min, host_name, brand, period, platform
+    FROM scheduled_streams WHERE run_id = $1 AND id = ANY($2::int[])`, [m.published_run_id, ids]);
+  const amount = (k: string) => {
+    const v = s(f, k).replace(/[$,\s]/g, '');
+    if (v === '') return null;
+    const x = Number(v);
+    return isFinite(x) && x >= 0 ? Math.round(x * 100) / 100 : NaN;
+  };
+  const bad: string[] = [];
+  let saved = 0;
+  await tx(async c => {
+    for (const st of streams) {
+      const tt = amount('tt_' + st.id), sp = amount('sp_' + st.id);
+      if (Number.isNaN(tt) || Number.isNaN(sp)) { bad.push(`${st.brand} ${st.date}`); continue; }
+      const status = s(f, 'st_' + st.id), notes = s(f, 'nt_' + st.id).slice(0, 500);
+      const keyArgs = [monthId, st.date, st.start_min, st.brand, st.platform, st.host_name || ''];
+      if (tt == null && sp == null && !status && !notes) {
+        await c.query(`DELETE FROM stream_sales WHERE month_id = $1 AND date = $2 AND start_min = $3 AND brand = $4 AND platform = $5 AND host_name = $6`, keyArgs);
+        continue;
+      }
+      await c.query(`INSERT INTO stream_sales (month_id, date, start_min, brand, platform, host_name, end_min, period, tiktok_gmv, shopee_gmv, pay_status, notes, updated_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        ON CONFLICT (month_id, date, start_min, brand, platform, host_name) DO UPDATE SET
+          end_min = EXCLUDED.end_min, period = EXCLUDED.period, tiktok_gmv = EXCLUDED.tiktok_gmv, shopee_gmv = EXCLUDED.shopee_gmv,
+          pay_status = EXCLUDED.pay_status, notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+        [...keyArgs, st.end_min, st.period, tt, sp, status, notes, user.id]);
+      saved++;
+    }
+  });
+  if (bad.length) back(returnTo, `Saved ${saved}. Not saved because an amount isn't a number: ${bad.join(', ')}`, 'bad');
+  back(returnTo, `Sales saved (${saved} stream${saved === 1 ? '' : 's'} with figures)`);
+}
+
+export async function removeSale(f: FormData) {
+  await requireAdmin();
+  await query('DELETE FROM stream_sales WHERE id = $1', [Number(s(f, 'id'))]);
+  const returnTo = s(f, 'returnTo');
+  back(returnTo.startsWith('/admin/months/') ? returnTo : '/admin', 'Sales entry removed');
+}

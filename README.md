@@ -14,6 +14,17 @@ The scheduling engine (`lib/scheduler.ts`) is a direct port of the Apps Script *
 3. **Host availability.** Hosts fill in their own grid. The tab shows who has availability, and ops can edit anyone's. Lock availability when you're ready to schedule.
 4. **Schedule → Run scheduler.** Each run is saved as a version with the full summary (fulfilment, unfulfilled commitments with reasons, host and room utilisation, warnings). Edit streams if needed (conflicts are flagged), then **Publish to hosts**.
 5. Hosts see their published streams under **My schedule**. Export any version to CSV.
+6. **Sales & earnings.** After the streams run, enter TikTok and Shopee GMV for each published stream. The talent fee, tier and totals per host and brand are worked out from **Payment rates**; export the lot to CSV for payouts.
+
+## Payment rates
+
+**Payment rates** holds what each brand pays (one row per tier), editable in place, with a fee calculator to check a stream. Import them from the Master Availability Sheet (download it as .xlsx; the app reads the Reference and Version tabs). The maths is the sheet's Tier / GMV per hour / Talent Fee formulas:
+
+- Rate: same brand, period (BAU / Mega, or a rate for All), platform (one, both at once, or any), valid on the stream's date. Most specific wins, then newest.
+- GMV per hour = total GMV / hours (hours x 2 for a both-platforms rate); the tier is the first whose upper bound is at or above it.
+- Base + comms: (base per hour x hours + comms % x total GMV) x (1 - agency %). Split comms: (TikTok % x TikTok GMV + Shopee % x Shopee GMV) x (1 - agency %).
+
+Sales are stored against the stream itself (date, time, host, brand, platform), so they survive re-running or re-publishing the schedule; sales for a stream that has since moved are listed separately on the tab.
 
 ## Scheduling rules
 

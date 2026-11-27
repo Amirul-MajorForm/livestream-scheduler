@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import Tour from './Tour';
 import ThemeToggle from './ThemeToggle';
 
-export type NavIcon = 'calendar' | 'users' | 'layers' | 'sliders' | 'upload' | 'clock' | 'back';
+export type NavIcon = 'calendar' | 'users' | 'layers' | 'sliders' | 'upload' | 'clock' | 'back' | 'dollar';
 
 const PATHS: Record<NavIcon | 'user' | 'logout' | 'menu', React.ReactNode> = {
   calendar: <><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
@@ -16,6 +16,7 @@ const PATHS: Record<NavIcon | 'user' | 'logout' | 'menu', React.ReactNode> = {
   upload: <><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></>,
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
   back: <path d="M15 18l-6-6 6-6" />,
+  dollar: <><path d="M12 3v18" /><path d="M16.5 7.5c-.6-1.5-2.3-2.5-4.5-2.5-2.6 0-4.5 1.3-4.5 3.3 0 4.6 9.3 2.6 9.3 7.3 0 2-2 3.4-4.8 3.4-2.4 0-4.2-1-4.8-2.7" /></>,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 20c.8-4 4-6 8-6s7.2 2 8 6" /></>,
   logout: <><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="M10 16l-4-4 4-4M6 12h10" /></>,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
