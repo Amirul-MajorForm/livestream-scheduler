@@ -14,15 +14,16 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
   const sp = await searchParams;
   const host = await one('SELECT * FROM hosts WHERE id = $1', [user.hostId]);
 
-  // Hosts always see this month and next month (created empty if ops haven't set them up yet),
+  // Hosts always see this month and the next two (created empty if ops haven't set them up yet),
   // plus any later month ops have opened or published.
   const now = todayYearMonth();
-  const next = now.month === 11 ? { year: now.year + 1, month: 0 } : { year: now.year, month: now.month + 1 };
-  const [thisMonth, nextMonth] = await Promise.all([ensureMonth(now.year, now.month), ensureMonth(next.year, next.month)]);
+  const plus = (n: number) => ({ year: now.year + Math.floor((now.month + n) / 12), month: (now.month + n) % 12 });
+  const ahead = plus(2);
+  const [thisMonth, nextMonth, monthAfter] = await Promise.all([0, 1, 2].map(n => ensureMonth(plus(n).year, plus(n).month)));
   const later = await query<MonthRow>(
-    `SELECT * FROM months WHERE (year * 12 + month) > $1 AND (availability_open OR published_run_id IS NOT NULL) ORDER BY year, month LIMIT 4`,
-    [next.year * 12 + next.month]);
-  const months = [thisMonth, nextMonth, ...later];
+    `SELECT * FROM months WHERE (year * 12 + month) > $1 AND (availability_open OR published_run_id IS NOT NULL) ORDER BY year, month LIMIT 3`,
+    [ahead.year * 12 + ahead.month]);
+  const months = [thisMonth, nextMonth, monthAfter, ...later];
 
   const tab = sp.tab === 'availability' ? 'availability' : 'schedule';
   // Default: your schedule for this month; availability for next month (what you're usually planning).
