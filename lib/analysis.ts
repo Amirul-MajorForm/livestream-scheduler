@@ -22,6 +22,34 @@ export interface AStream {
   fee: number;            // talent fee for the stream (all hosts)
   entered: boolean;       // has sales figures
   paid: boolean;
+  mega: boolean;          // tagged Mega
+  campaign: Campaign | null; // which sale it belongs to (Mega streams only)
+}
+
+export type CampaignType = 'dd' | 'mm' | 'pd';
+export interface Campaign { type: CampaignType; phase: 'd1' | 'dday'; year: number; month: number }
+export const CAMPAIGNS: { type: CampaignType; name: string; when: string }[] = [
+  { type: 'dd', name: 'Double Digit', when: 'day = month (9.9, 10.10, 11.11)' },
+  { type: 'mm', name: 'Mid-Month', when: '15th' },
+  { type: 'pd', name: 'Payday', when: '25th' },
+];
+
+/**
+ * The sale a date belongs to, by the usual calendar: Double Digit on day = month (D-1 the day before),
+ * Mid-Month on the 15th (D-1 the 14th), Payday on the 25th (D-1 the 24th). The campaign's month is
+ * its D-Day's month (31 Dec is D-1 of January's 1.1).
+ */
+export function campaignOf(date: string): Campaign | null {
+  const [y, m, d] = date.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const ny = next.getUTCFullYear(), nm = next.getUTCMonth() + 1, nd = next.getUTCDate();
+  if (d === m) return { type: 'dd', phase: 'dday', year: y, month: m - 1 };
+  if (nd === nm) return { type: 'dd', phase: 'd1', year: ny, month: nm - 1 };
+  if (d === 15) return { type: 'mm', phase: 'dday', year: y, month: m - 1 };
+  if (d === 14) return { type: 'mm', phase: 'd1', year: y, month: m - 1 };
+  if (d === 25) return { type: 'pd', phase: 'dday', year: y, month: m - 1 };
+  if (d === 24) return { type: 'pd', phase: 'd1', year: y, month: m - 1 };
+  return null;
 }
 
 const PAID = /^paid/i;
@@ -57,6 +85,8 @@ function toStream(m: MonthRow, r: SaleRow, entered: boolean): AStream {
     brand: r.brand, platform: platformOf(r.platform), platformText: r.platform, period: r.period,
     tt, sp, gmv: tt + sp, fee: entered ? r.result.fee ?? 0 : 0, entered,
     paid: PAID.test(r.pay_status),
+    mega: r.period.toUpperCase() === 'MEGA',
+    campaign: r.period.toUpperCase() === 'MEGA' ? campaignOf(r.date) : null,
   };
 }
 

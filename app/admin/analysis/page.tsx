@@ -1,18 +1,31 @@
 import Link from 'next/link';
-import { loadAnalysis, analysisYears, emptyTotals, addTo, type AStream, type Totals } from '@/lib/analysis';
+import { loadAnalysis, analysisYears, emptyTotals, addTo, CAMPAIGNS, type Totals, type CampaignType } from '@/lib/analysis';
 import { loadBrandColors } from '@/lib/brandPalette';
 import { todayYearMonth } from '@/lib/data';
 import { money } from '@/lib/earnings';
-import { fmtDate, fmtRange, MONTH_NAMES } from '@/lib/format';
+import { MONTH_NAMES } from '@/lib/format';
 import SortTable from '@/components/SortTable';
 import BrandPill from '@/components/BrandPill';
 import BarChart from '@/components/BarChart';
-import PlatformTag from '@/components/PlatformTag';
+import PieChart from '@/components/PieChart';
 
 export const dynamic = 'force-dynamic';
 
 type SP = { y?: string; mf?: string; mt?: string; b?: string; h?: string; p?: string; mx?: string };
 const PLATFORM_LABEL = { tiktok: 'TikTok only', shopee: 'Shopee only', both: 'TikTok & Shopee' } as const;
+// Chart colours (checked for colour-blind separation and contrast in both themes).
+const PLATFORM_COLOR = { tiktok: '#0891b2', shopee: '#ea580c', both: '#7c3aed' } as const;
+const CAMPAIGN_COLOR: Record<CampaignType, string> = { dd: '#2563eb', mm: '#d97706', pd: '#db2777' };
+
+/** A collapsible block of the page (open by default). */
+function Section({ title, note, right, children }: { title: string; note?: string; right?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <details className="section" open>
+      <summary><h2>{title}</h2>{note && <span className="small">{note}</span>}{right && <span className="section-right" onClick={undefined}>{right}</span>}</summary>
+      {children}
+    </details>
+  );
+}
 const r1 = (x: number) => Math.round(x * 10) / 10;
 const pct = (a: number, b: number) => (b ? `${r1((a / b) * 100)}%` : '—');
 
@@ -69,8 +82,26 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
   const monthLabel = (m: { year: number; month: number }) => MONTH_NAMES[m.month].slice(0, 3) + (yearSel === 'all' ? ` ${String(m.year).slice(2)}` : '');
   const hostRows = [...byHost].sort((a, b) => b[1].fee - a[1].fee);
   const brandRows = [...byBrand].sort((a, b) => b[1].gmv - a[1].gmv);
-  const topStreams = [...list].filter(s => s.entered).sort((a, b) => b.gmv - a.gmv).slice(0, 10);
   const gph = (t: Totals) => (t.hours ? t.gmv / t.hours : 0);
+  const times = (a: number, b: number) => (b ? `${(Math.round((a / b) * 10) / 10).toFixed(1)}\u00d7` : '\u2014');
+
+  // Mega campaigns: each sale's D-1 and D-Day, the other Mega days, and regular BAU streams for comparison.
+  type Phase = { d1: Totals; dday: Totals; both: Totals };
+  const phase = (): Phase => ({ d1: emptyTotals(), dday: emptyTotals(), both: emptyTotals() });
+  const camp: Record<CampaignType, Phase> = { dd: phase(), mm: phase(), pd: phase() };
+  const otherMega = emptyTotals(), bau = emptyTotals();
+  const byCampMonth = new Map<string, { year: number; month: number; t: Record<CampaignType, Phase> }>();
+  for (const s of list) {
+    if (!s.mega) { addTo(bau, s); continue; }
+    if (!s.campaign) { addTo(otherMega, s); continue; }
+    const c = s.campaign;
+    addTo(camp[c.type][c.phase], s); addTo(camp[c.type].both, s);
+    const k = `${c.year}-${String(c.month).padStart(2, '0')}`;
+    const e = byCampMonth.get(k) || { year: c.year, month: c.month, t: { dd: phase(), mm: phase(), pd: phase() } };
+    addTo(e.t[c.type][c.phase], s); addTo(e.t[c.type].both, s);
+    byCampMonth.set(k, e);
+  }
+  const campMonths = [...byCampMonth.values()].sort((a, b) => a.year - b.year || a.month - b.month);
 
   // Host x brand matrix (top hosts and brands by the chosen measure).
   const mval = (t?: Totals) => !t ? 0 : metric === 'fee' ? t.fee : metric === 'streams' ? t.streams : t.gmv;
@@ -126,144 +157,182 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
             <div className="kpi"><div className="lab">Hosts &middot; brands</div><div className="v">{byHost.size} &middot; {byBrand.size}</div><div className="s">top host: {hostRows[0]?.[0] ?? '—'}</div></div>
           </div>
 
-          <div className="grid2">
-            <div className="card">
-              <h2 style={{ marginTop: 0 }}>GMV by month</h2>
-              <BarChart label="GMV by month, TikTok and Shopee"
-                series={[{ name: 'TikTok', color: 'var(--chart-tt)' }, { name: 'Shopee', color: 'var(--chart-sp)' }]}
-                data={months.map(m => ({ label: monthLabel(m), values: [m.tt, m.sp],
-                  tip: `${MONTH_NAMES[m.month]} ${m.year}\nTotal ${money(m.gmv)}\nTikTok ${money(m.tt)} · Shopee ${money(m.sp)}\n${m.streams} streams` }))} />
-            </div>
-            <div className="card">
-              <h2 style={{ marginTop: 0 }}>Talent fees by month</h2>
-              <BarChart label="Talent fees by month" series={[{ name: 'Talent fees', color: 'var(--chart-one)' }]}
-                data={months.map(m => ({ label: monthLabel(m), values: [m.fee],
-                  tip: `${MONTH_NAMES[m.month]} ${m.year}\nFees ${money(m.fee)} (${pct(m.fee, m.gmv)} of GMV)\nPaid ${money(m.paid)}` }))} />
-            </div>
-          </div>
-
-          <h2>Hosts</h2>
-          <p className="small muted" style={{ marginTop: -4 }}>Click a column to sort. Shared streams: GMV and fees split equally; streams and hours count in full for each host.</p>
-          <div className="table-wrap">
-            <SortTable initial={{ col: 5, dir: 'desc' }}
-              cols={[{ label: 'Host' }, { label: 'Streams', num: true }, { label: 'Hours', num: true }, { label: 'GMV', num: true },
-                { label: 'GMV / hour', num: true }, { label: 'Talent fees', num: true }, { label: 'Avg fee / stream', num: true },
-                { label: 'Paid', num: true }, { label: 'Top brand (fees)' }, { label: 'Brands', num: true }]}
-              rows={hostRows.map(([h, a]) => ({
-                key: h,
-                sort: [h, a.streams, a.hours, a.gmv, gph(a), a.fee, a.streams ? a.fee / a.streams : 0, a.paid, top(a.brands), a.brands.size],
-                cells: [
-                  <><Link href={q({ h })}><strong>{h}</strong></Link>{a.shared > 0 && <> <span className="badge" data-tip={`${a.shared} shared stream(s)`}>{a.shared} shared</span></>}</>,
-                  a.streams, r1(a.hours), money(a.gmv), money(gph(a)), <strong key="f">{money(a.fee)}</strong>, money(a.streams ? a.fee / a.streams : 0),
-                  money(a.paid), a.brands.size ? <BrandPill key="b" brand={top(a.brands)} color={colors[top(a.brands)]} /> : '—', a.brands.size,
-                ],
-              }))} />
-          </div>
-
-          <h2>Brands</h2>
-          <div className="table-wrap">
-            <SortTable initial={{ col: 5, dir: 'desc' }}
-              cols={[{ label: 'Brand' }, { label: 'Streams', num: true }, { label: 'Hours', num: true }, { label: 'TikTok GMV', num: true },
-                { label: 'Shopee GMV', num: true }, { label: 'Total GMV', num: true }, { label: 'GMV / hour', num: true },
-                { label: 'Talent fees', num: true }, { label: 'Fees % of GMV', num: true }, { label: 'Hosts', num: true }, { label: 'Top host (GMV)' }]}
-              rows={brandRows.map(([b, a]) => ({
-                key: b,
-                sort: [b, a.streams, a.hours, a.tt, a.sp, a.gmv, gph(a), a.fee, a.gmv ? a.fee / a.gmv : 0, a.hosts.size, top(a.hosts)],
-                cells: [
-                  <Link key="b" href={q({ b })}><BrandPill brand={b} color={colors[b]} /></Link>,
-                  a.streams, r1(a.hours), money(a.tt), money(a.sp), <strong key="g">{money(a.gmv)}</strong>, money(gph(a)),
-                  money(a.fee), pct(a.fee, a.gmv), a.hosts.size, top(a.hosts),
-                ],
-              }))} />
-          </div>
-
-          <h2>Months</h2>
-          <div className="table-wrap">
-            <SortTable initial={{ col: 0, dir: 'asc' }}
-              cols={[{ label: 'Month' }, { label: 'Streams', num: true }, { label: 'Hours', num: true }, { label: 'TikTok GMV', num: true },
-                { label: 'Shopee GMV', num: true }, { label: 'Total GMV', num: true }, { label: 'Talent fees', num: true }, { label: 'Paid', num: true }, { label: 'Top brand (GMV)' }]}
-              rows={months.map(m => ({
-                key: `${m.year}-${m.month}`,
-                sort: [m.year * 12 + m.month, m.streams, m.hours, m.tt, m.sp, m.gmv, m.fee, m.paid, top(m.brands)],
-                cells: [
-                  <Link key="m" href={q({ y: String(m.year), mf: String(m.month), mt: String(m.month) })}>{MONTH_NAMES[m.month]} {m.year}</Link>,
-                  m.streams, r1(m.hours), money(m.tt), money(m.sp), <strong key="g">{money(m.gmv)}</strong>, money(m.fee), money(m.paid),
-                  <BrandPill key="b" brand={top(m.brands)} color={colors[top(m.brands)]} />,
-                ],
-              }))}
-              foot={['Total', tot.streams, r1(tot.hours), money(tot.tt), money(tot.sp), <strong key="g">{money(tot.gmv)}</strong>, money(tot.fee), money(tot.paid), '']} />
-          </div>
-
-          <div className="grid2">
-            <div>
-              <h2>Platforms</h2>
-              <div className="table-wrap">
-                <SortTable initial={{ col: 3, dir: 'desc' }}
-                  cols={[{ label: 'Platform' }, { label: 'Streams', num: true }, { label: 'Hours', num: true }, { label: 'GMV', num: true }, { label: 'GMV / hour', num: true }, { label: 'Talent fees', num: true }]}
-                  rows={[...byPlatform].map(([p, a]) => ({
-                    key: p, sort: [p, a.streams, a.hours, a.gmv, gph(a), a.fee],
-                    cells: [PLATFORM_LABEL[p as keyof typeof PLATFORM_LABEL], a.streams, r1(a.hours), money(a.gmv), money(gph(a)), money(a.fee)],
-                  }))} />
+          <Section title="By month" note="GMV split by platform, and talent fees. Hover a bar for the figures.">
+            <div className="grid2">
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>GMV by month</h3>
+                <BarChart label="GMV by month, TikTok and Shopee"
+                  series={[{ name: 'TikTok', color: 'var(--chart-tt)' }, { name: 'Shopee', color: 'var(--chart-sp)' }]}
+                  data={months.map(m => ({ label: monthLabel(m), values: [m.tt, m.sp],
+                    tip: `${MONTH_NAMES[m.month]} ${m.year}\nTotal ${money(m.gmv)}\nTikTok ${money(m.tt)} \u00b7 Shopee ${money(m.sp)}\n${m.streams} streams` }))} />
+              </div>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Talent fees by month</h3>
+                <BarChart label="Talent fees by month" series={[{ name: 'Talent fees', color: 'var(--chart-one)' }]}
+                  data={months.map(m => ({ label: monthLabel(m), values: [m.fee],
+                    tip: `${MONTH_NAMES[m.month]} ${m.year}\nFees ${money(m.fee)} (${pct(m.fee, m.gmv)} of GMV)\nPaid ${money(m.paid)}` }))} />
               </div>
             </div>
-            <div>
-              <h2>Top 10 streams by GMV</h2>
-              <div className="table-wrap">
-                <table className="compact one-line">
-                  <thead><tr><th>Date</th><th>Host</th><th>Brand</th><th>Platform</th><th className="num">GMV</th><th className="num">Fee</th></tr></thead>
-                  <tbody>
-                    {topStreams.map((s, i) => (
-                      <tr key={i}>
-                        <td data-tip={fmtRange(s.start_min, s.end_min)}>{fmtDate(s.date)}</td>
-                        <td>{s.hosts.join(', ') || '—'}</td>
-                        <td><BrandPill brand={s.brand} color={colors[s.brand]} /></td>
-                        <td><PlatformTag platform={s.platformText} short /></td>
-                        <td className="num"><strong>{money(s.gmv)}</strong></td>
-                        <td className="num">{money(s.fee)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          </Section>
+
+          <Section title="Mega campaigns" note="Mega streams on Double Digit (day = month, e.g. 11.11), Mid-Month (15th) and Payday (25th), each with its D-1. Compared with regular BAU streams.">
+            <div className="grid2">
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>GMV by campaign, each month</h3>
+                <BarChart grouped label="GMV by campaign and month"
+                  series={CAMPAIGNS.map(c => ({ name: c.name, color: CAMPAIGN_COLOR[c.type] }))}
+                  data={campMonths.map(cm => ({ label: monthLabel(cm), values: CAMPAIGNS.map(c => cm.t[c.type].both.gmv),
+                    tip: [`${MONTH_NAMES[cm.month]} ${cm.year}`, ...CAMPAIGNS.map(c => `${c.name}: ${money(cm.t[c.type].both.gmv)} (D-1 ${money(cm.t[c.type].d1.gmv)} \u00b7 D-Day ${money(cm.t[c.type].dday.gmv)})`)].join('\n') }))} />
+              </div>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>GMV per hour: D-1 vs D-Day</h3>
+                <BarChart grouped label="GMV per hour, D-1 and D-Day, by campaign"
+                  series={[{ name: 'D-1', color: 'var(--chart-d1)' }, { name: 'D-Day', color: 'var(--chart-dday)' }]}
+                  data={[...CAMPAIGNS.map(c => ({ label: c.name, values: [gph(camp[c.type].d1), gph(camp[c.type].dday)],
+                    tip: `${c.name}\nD-1: ${money(gph(camp[c.type].d1))}/h over ${camp[c.type].d1.streams} streams\nD-Day: ${money(gph(camp[c.type].dday))}/h over ${camp[c.type].dday.streams} streams` })),
+                    { label: 'BAU', values: [gph(bau), 0], tip: `Regular BAU streams\n${money(gph(bau))}/h over ${bau.streams} streams` }]} />
               </div>
             </div>
-          </div>
+            <div className="table-wrap scroll-y">
+              <SortTable initial={{ col: 0, dir: 'asc' }}
+                cols={[{ label: 'Campaign' }, { label: 'Day' }, { label: 'Streams', num: true }, { label: 'Hours', num: true },
+                  { label: 'Total GMV', num: true }, { label: 'GMV / hour', num: true }, { label: 'GMV / stream', num: true },
+                  { label: 'vs BAU (per hour)', num: true, tip: 'How many times the regular BAU GMV per hour' }, { label: 'Talent fees', num: true }]}
+                rows={[
+                  ...CAMPAIGNS.flatMap(c => (['d1', 'dday'] as const).map(ph => {
+                    const t = camp[c.type][ph];
+                    return { key: c.type + ph, sort: [c.name + (ph === 'd1' ? '1' : '2'), ph, t.streams, t.hours, t.gmv, gph(t), t.streams ? t.gmv / t.streams : 0, gph(bau) ? gph(t) / gph(bau) : 0, t.fee],
+                      cells: [<span key="c" className="camp-dot" style={{ '--cc': CAMPAIGN_COLOR[c.type] } as React.CSSProperties}>{c.name}</span>, ph === 'd1' ? 'D-1' : 'D-Day',
+                        t.streams, r1(t.hours), <strong key="g">{money(t.gmv)}</strong>, money(gph(t)), money(t.streams ? t.gmv / t.streams : 0), times(gph(t), gph(bau)), money(t.fee)] };
+                  })),
+                  { key: 'other', sort: ['Other Mega days', '', otherMega.streams, otherMega.hours, otherMega.gmv, gph(otherMega), otherMega.streams ? otherMega.gmv / otherMega.streams : 0, gph(bau) ? gph(otherMega) / gph(bau) : 0, otherMega.fee],
+                    cells: ['Other Mega days', '\u2014', otherMega.streams, r1(otherMega.hours), money(otherMega.gmv), money(gph(otherMega)), money(otherMega.streams ? otherMega.gmv / otherMega.streams : 0), times(gph(otherMega), gph(bau)), money(otherMega.fee)] },
+                  { key: 'bau', className: 'muted-row', sort: ['Regular (BAU)', '', bau.streams, bau.hours, bau.gmv, gph(bau), bau.streams ? bau.gmv / bau.streams : 0, 1, bau.fee],
+                    cells: ['Regular (BAU)', '\u2014', bau.streams, r1(bau.hours), money(bau.gmv), money(gph(bau)), money(bau.streams ? bau.gmv / bau.streams : 0), '1.0\u00d7', money(bau.fee)] },
+                ]} />
+            </div>
+            <h3>Each month, side by side</h3>
+            <div className="table-wrap scroll-y">
+              <SortTable initial={{ col: 0, dir: 'asc' }}
+                cols={[{ label: 'Month' }, ...CAMPAIGNS.flatMap(c => [{ label: `${c.name} D-1`, num: true }, { label: `${c.name} D-Day`, num: true }]), { label: 'Campaign total', num: true }]}
+                rows={campMonths.map(cm => {
+                  const cellsFor = CAMPAIGNS.flatMap(c => (['d1', 'dday'] as const).map(ph => cm.t[c.type][ph]));
+                  const totalC = cellsFor.reduce((a, t) => a + t.gmv, 0);
+                  return {
+                    key: `${cm.year}-${cm.month}`,
+                    sort: [cm.year * 12 + cm.month, ...cellsFor.map(t => t.gmv), totalC],
+                    cells: [`${MONTH_NAMES[cm.month]} ${cm.year}`,
+                      ...cellsFor.map((t, i) => t.streams
+                        ? <span key={i} data-tip={`${t.streams} streams \u00b7 ${r1(t.hours)} h\n${money(gph(t))} per hour\nFees ${money(t.fee)}`}>{money(t.gmv)}</span>
+                        : <span key={i} className="muted">{'\u2014'}</span>),
+                      <strong key="t">{money(totalC)}</strong>],
+                  };
+                })} />
+            </div>
+          </Section>
 
-          <div className="host-sched-head" style={{ marginTop: 22 }}>
-            <h2 style={{ margin: 0 }}>Hosts &times; brands</h2>
-            <div className="seg" role="tablist" aria-label="Measure">
+          <Section title="Hosts" note="Click a column to sort. Shared streams: GMV and fees split equally; streams and hours count in full for each host.">
+            <div className="table-wrap scroll-y">
+              <SortTable initial={{ col: 5, dir: 'desc' }}
+                cols={[{ label: 'Host' }, { label: 'Streams', num: true }, { label: 'Hours', num: true }, { label: 'GMV', num: true },
+                  { label: 'GMV / hour', num: true }, { label: 'Talent fees', num: true }, { label: 'Avg fee / stream', num: true },
+                  { label: 'Paid', num: true }, { label: 'Top brand (fees)' }, { label: 'Brands', num: true }]}
+                rows={hostRows.map(([h, a]) => ({
+                  key: h,
+                  sort: [h, a.streams, a.hours, a.gmv, gph(a), a.fee, a.streams ? a.fee / a.streams : 0, a.paid, top(a.brands), a.brands.size],
+                  cells: [
+                    <><Link href={q({ h })}><strong>{h}</strong></Link>{a.shared > 0 && <> <span className="badge" data-tip={`${a.shared} shared stream(s)`}>{a.shared} shared</span></>}</>,
+                    a.streams, r1(a.hours), money(a.gmv), money(gph(a)), <strong key="f">{money(a.fee)}</strong>, money(a.streams ? a.fee / a.streams : 0),
+                    money(a.paid), a.brands.size ? <BrandPill key="b" brand={top(a.brands)} color={colors[top(a.brands)]} /> : '\u2014', a.brands.size,
+                  ],
+                }))} />
+            </div>
+          </Section>
+
+          <Section title="Brands">
+            <div className="table-wrap scroll-y">
+              <SortTable initial={{ col: 5, dir: 'desc' }}
+                cols={[{ label: 'Brand' }, { label: 'Streams', num: true }, { label: 'Hours', num: true }, { label: 'TikTok GMV', num: true },
+                  { label: 'Shopee GMV', num: true }, { label: 'Total GMV', num: true }, { label: 'GMV / hour', num: true },
+                  { label: 'Talent fees', num: true }, { label: 'Fees % of GMV', num: true }, { label: 'Hosts', num: true }, { label: 'Top host (GMV)' }]}
+                rows={brandRows.map(([b, a]) => ({
+                  key: b,
+                  sort: [b, a.streams, a.hours, a.tt, a.sp, a.gmv, gph(a), a.fee, a.gmv ? a.fee / a.gmv : 0, a.hosts.size, top(a.hosts)],
+                  cells: [
+                    <Link key="b" href={q({ b })}><BrandPill brand={b} color={colors[b]} /></Link>,
+                    a.streams, r1(a.hours), money(a.tt), money(a.sp), <strong key="g">{money(a.gmv)}</strong>, money(gph(a)),
+                    money(a.fee), pct(a.fee, a.gmv), a.hosts.size, top(a.hosts),
+                  ],
+                }))} />
+            </div>
+          </Section>
+
+          <Section title="Months">
+            <div className="table-wrap scroll-y">
+              <SortTable initial={{ col: 0, dir: 'asc' }}
+                cols={[{ label: 'Month' }, { label: 'Streams', num: true }, { label: 'Hours', num: true }, { label: 'TikTok GMV', num: true },
+                  { label: 'Shopee GMV', num: true }, { label: 'Total GMV', num: true }, { label: 'Talent fees', num: true }, { label: 'Paid', num: true }, { label: 'Top brand (GMV)' }]}
+                rows={months.map(m => ({
+                  key: `${m.year}-${m.month}`,
+                  sort: [m.year * 12 + m.month, m.streams, m.hours, m.tt, m.sp, m.gmv, m.fee, m.paid, top(m.brands)],
+                  cells: [
+                    <Link key="m" href={q({ y: String(m.year), mf: String(m.month), mt: String(m.month) })}>{MONTH_NAMES[m.month]} {m.year}</Link>,
+                    m.streams, r1(m.hours), money(m.tt), money(m.sp), <strong key="g">{money(m.gmv)}</strong>, money(m.fee), money(m.paid),
+                    <BrandPill key="b" brand={top(m.brands)} color={colors[top(m.brands)]} />,
+                  ],
+                }))}
+                foot={['Total', tot.streams, r1(tot.hours), money(tot.tt), money(tot.sp), <strong key="g">{money(tot.gmv)}</strong>, money(tot.fee), money(tot.paid), '']} />
+            </div>
+          </Section>
+
+          <Section title="Platforms" note="Share of GMV. Hover a slice for streams, GMV per hour and fees.">
+            <div className="card">
+              <PieChart label="Share of GMV by platform" center={{ value: money(tot.gmv).replace(/\.\d\d$/, ''), caption: 'total GMV' }}
+                slices={(['tiktok', 'shopee', 'both'] as const).map(p => {
+                  const a = byPlatform.get(p) || emptyTotals();
+                  return {
+                    name: PLATFORM_LABEL[p], value: a.gmv, color: PLATFORM_COLOR[p],
+                    tip: `${PLATFORM_LABEL[p]}\nGMV ${money(a.gmv)} (${pct(a.gmv, tot.gmv)})\n${a.streams} streams \u00b7 ${money(gph(a))} per hour\nFees ${money(a.fee)}`,
+                    detail: <>{money(a.gmv)} &middot; {a.streams} streams &middot; {money(gph(a))}/h</>,
+                  };
+                })} />
+            </div>
+          </Section>
+
+          <Section title={'Hosts \u00d7 brands'} note={`Darker = more. Top ${mHosts.length} hosts and ${mBrands.length} brands by ${metric === 'gmv' ? 'GMV' : metric === 'fee' ? 'talent fees' : 'streams'}. Hover a cell for the figures.`}
+            right={<div className="seg" role="tablist" aria-label="Measure">
               {(['gmv', 'fee', 'streams'] as const).map(k => (
                 <Link key={k} href={q({ mx: k === 'gmv' ? null : k })} className={metric === k ? 'on' : ''}>{k === 'gmv' ? 'GMV' : k === 'fee' ? 'Talent fees' : 'Streams'}</Link>
               ))}
+            </div>}>
+            <div className="table-wrap scroll-y">
+              <table className="compact heat-matrix">
+                <thead>
+                  <tr><th>Host</th>{mBrands.map(b => <th key={b} className="num"><BrandPill brand={b} color={colors[b]} /></th>)}<th className="num">Total</th></tr>
+                </thead>
+                <tbody>
+                  {mHosts.map(h => (
+                    <tr key={h}>
+                      <td><strong>{h}</strong></td>
+                      {mBrands.map(b => {
+                        const c = cell.get(h + '|' + b);
+                        const v = mval(c);
+                        const k = v / mMax;
+                        return (
+                          <td key={b} className={'num heat' + (k > 0.55 ? ' dark' : '')}
+                            style={v ? ({ '--k': `${Math.round(8 + k * 82)}%` } as React.CSSProperties) : undefined}
+                            data-tip={c ? `${h} \u00b7 ${b}\nGMV ${money(c.gmv)} \u00b7 fees ${money(c.fee)}\n${c.streams} streams` : undefined}>
+                            {v ? mfmt(v) : ''}
+                          </td>
+                        );
+                      })}
+                      <td className="num"><strong>{mfmt(mval(byHost.get(h)))}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
-          <p className="small muted">Darker = more. Top {mHosts.length} hosts and {mBrands.length} brands by {metric === 'gmv' ? 'GMV' : metric === 'fee' ? 'talent fees' : 'streams'}. Hover a cell for the figures.</p>
-          <div className="table-wrap">
-            <table className="compact heat-matrix">
-              <thead>
-                <tr><th>Host</th>{mBrands.map(b => <th key={b} className="num"><BrandPill brand={b} color={colors[b]} /></th>)}<th className="num">Total</th></tr>
-              </thead>
-              <tbody>
-                {mHosts.map(h => (
-                  <tr key={h}>
-                    <td><strong>{h}</strong></td>
-                    {mBrands.map(b => {
-                      const c = cell.get(h + '|' + b);
-                      const v = mval(c);
-                      const k = v / mMax;
-                      return (
-                        <td key={b} className={'num heat' + (k > 0.55 ? ' dark' : '')}
-                          style={v ? ({ '--k': `${Math.round(8 + k * 82)}%` } as React.CSSProperties) : undefined}
-                          data-tip={c ? `${h} · ${b}\nGMV ${money(c.gmv)} · fees ${money(c.fee)}\n${c.streams} streams` : undefined}>
-                          {v ? mfmt(v) : ''}
-                        </td>
-                      );
-                    })}
-                    <td className="num"><strong>{mfmt(mval(byHost.get(h)))}</strong></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          </Section>
         </>
       )}
     </>
