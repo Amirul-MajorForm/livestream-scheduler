@@ -22,8 +22,9 @@ export function dayOfWeek(iso: string) {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
+/** '20:00–22:00'. A stream running past midnight shows the clock time (22:30–00:29), not 24:29. */
 export function fmtRange(start: number, end: number) {
-  return formatTime(start) + '–' + formatTime(end);
+  return formatTime(start % 1440) + '–' + formatTime(end % 1440);
 }
 
 export function pct(v: number | null | undefined) {

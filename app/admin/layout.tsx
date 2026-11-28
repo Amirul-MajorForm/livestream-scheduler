@@ -12,6 +12,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       { href: '/admin/settings', label: 'Brands, rooms & team', icon: 'layers' },
       { href: '/admin/rules', label: 'Planning rules', icon: 'sliders' },
       { href: '/admin/rates', label: 'Payment rates', icon: 'dollar' },
+      { href: '/admin/analysis', label: 'Analysis', icon: 'chart' },
       { href: '/admin/import', label: 'Import', icon: 'upload' },
     ]}>
       {children}

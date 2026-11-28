@@ -592,3 +592,35 @@ tr.total-row td { background: var(--surface-alt); font-weight: 600; }
 .bulk-note input { width: 220px; }
 .sales-table tr:has(td.cb input:checked) td { background: var(--accent-light); }
 .bulk-pay select { width: auto; max-width: 270px; }
+
+/* Sortable headers, brand pills, chart colours */
+:root { --chart-tt: #0891b2; --chart-sp: #ea580c; --chart-one: var(--accent); }
+[data-theme="dark"] { --chart-tt: #0ea5c4; --chart-sp: #ef6a24; }
+.th-sort { all: unset; cursor: pointer; white-space: nowrap; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+.th-sort:hover { color: var(--text-primary); }
+.th-sort.on { color: var(--accent); }
+.th-sort .arrow { color: var(--border-strong); font-size: 9px; }
+.th-sort.on .arrow { color: var(--accent); }
+.th-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.brand-pill { --bc: var(--neutral); display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px 1px 7px; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--bc) 15%, var(--surface)); color: var(--text-primary); font-weight: 600; font-size: 12px; line-height: 1.6; white-space: nowrap; }
+.brand-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--bc); flex: 0 0 auto; }
+tfoot td { border-bottom: 0; }
+.sales-table tr[hidden] { display: none; }
+.sales-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.sales-filters select, .sales-filters input { font-size: 12.5px; padding: 5px 8px; }
+
+/* Analysis */
+.chart { margin: 0; }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .axis { stroke: var(--border-strong); stroke-width: 1; }
+.chart .tick { fill: var(--text-muted); font-size: 11px; font-family: var(--font-ui); }
+.chart .hit { fill: transparent; }
+.chart .bar-g:hover .hit { fill: var(--surface-alt); }
+.chart-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.heat-matrix td.heat { background: color-mix(in srgb, var(--accent) var(--k, 0%), var(--surface)); font-variant-numeric: tabular-nums; }
+.heat-matrix td.heat.dark { color: #fff; }
+.heat-matrix th .brand-pill { font-size: 11px; }
+.heat-matrix td, .heat-matrix th { white-space: nowrap; }

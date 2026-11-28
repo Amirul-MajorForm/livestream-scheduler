@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import Tour from './Tour';
 import ThemeToggle from './ThemeToggle';
 
-export type NavIcon = 'calendar' | 'users' | 'layers' | 'sliders' | 'upload' | 'clock' | 'back' | 'dollar';
+export type NavIcon = 'calendar' | 'users' | 'layers' | 'sliders' | 'upload' | 'clock' | 'back' | 'dollar' | 'chart';
 
 const PATHS: Record<NavIcon | 'user' | 'logout' | 'menu', React.ReactNode> = {
   calendar: <><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
@@ -20,6 +20,7 @@ const PATHS: Record<NavIcon | 'user' | 'logout' | 'menu', React.ReactNode> = {
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 20c.8-4 4-6 8-6s7.2 2 8 6" /></>,
   logout: <><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="M10 16l-4-4 4-4M6 12h10" /></>,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  chart: <><path d="M4 20V4" /><path d="M4 20h16" /><rect x="7" y="11" width="3" height="6" rx="1" /><rect x="12" y="7" width="3" height="10" rx="1" /><rect x="17" y="13" width="3" height="4" rx="1" /></>,
 };
 
 export function Icon({ name }: { name: keyof typeof PATHS }) {
