@@ -141,6 +141,11 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
+      {years.length === 1 && (
+        <div className="notice info slim">
+          Only {years[0]} is loaded so far. To add {years[0] - 1}, open <Link href="/admin/import">Import</Link> and upload the Master Availability Sheet with &ldquo;All years in the file&rdquo;.
+        </div>
+      )}
       <form className="sales-filters" action="/admin/analysis">
         <select name="y" defaultValue={String(yearSel ?? '')} aria-label="Year">
           <option value="all">All years{years.length > 1 ? ` (${[...years].sort()[0]}\u2013${[...years].sort().slice(-1)[0]})` : ''}</option>

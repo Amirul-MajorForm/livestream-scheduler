@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { getUser } from '@/lib/auth';
 import { query, tx } from '@/lib/db';
 import { ensureMonth, monthLabel, type MonthRow } from '@/lib/data';
-import { readStreamFile, type SheetStream } from '@/lib/streamImport';
+import { readStreamFileYears, type SheetStream } from '@/lib/streamImport';
 
 export const maxDuration = 120;
 
@@ -22,34 +22,52 @@ export async function POST(req: Request) {
   const form = await req.formData().catch(() => null);
   const file = form?.get('file');
   const mode = String(form?.get('mode') || 'preview');
-  const year = Number(form?.get('year') || new Date().getFullYear());
+  const yearRaw = String(form?.get('year') || 'all');
+  const year: number | 'all' = yearRaw === 'all' ? 'all' : Number(yearRaw);
   if (!(file instanceof File) || !file.size) return NextResponse.json({ error: 'Choose the .xlsx file' }, { status: 400 });
   if (file.size > 25 * 1024 * 1024) return NextResponse.json({ error: 'That file is too large (25 MB max)' }, { status: 400 });
-  if (!['preview', 'import'].includes(mode) || !(year >= 2020 && year <= 2100)) return NextResponse.json({ error: 'Bad request' }, { status: 400 });
+  if (!['preview', 'import'].includes(mode) || (year !== 'all' && !(year >= 2020 && year <= 2100))) return NextResponse.json({ error: 'Bad request' }, { status: 400 });
 
   const [hosts, brands, months] = await Promise.all([
     query<{ id: number; name: string }>('SELECT id, name FROM hosts'),
     query<{ name: string }>('SELECT name FROM brands'),
     query(`SELECT m.*, r.label AS run_label, (SELECT count(*)::int FROM scheduled_streams s WHERE s.run_id = m.published_run_id) AS run_streams
-      FROM months m LEFT JOIN schedule_runs r ON r.id = m.published_run_id WHERE m.year = $1`, [year]),
+      FROM months m LEFT JOIN schedule_runs r ON r.id = m.published_run_id`),
   ]);
-  let parsed;
-  try { parsed = await readStreamFile(await file.arrayBuffer(), year, { hosts, brands }); }
+  let perYear;
+  try { perYear = await readStreamFileYears(await file.arrayBuffer(), year === 'all' ? 'all' : [year], { hosts, brands }); }
   catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 400 }); }
+  const parsed = {
+    sheet: perYear.filter(p => p.file.streams.length).map(p => `${p.year}: ${p.file.sheet}`).join(', '),
+    streams: perYear.flatMap(p => p.file.streams),
+    skipped: perYear.flatMap(p => p.file.skipped),
+    unknownHosts: [...new Set(perYear.flatMap(p => p.file.unknownHosts))].sort(),
+    unknownBrands: [...new Set(perYear.flatMap(p => p.file.unknownBrands))].sort(),
+  };
+  if (!parsed.streams.length) {
+    return NextResponse.json({ error: year === 'all'
+      ? 'No streams found in this file.'
+      : `No ${year} streams in this file. The 2025 streams are in the Master Availability Sheet (Availability 2025 tab); the Revenue Sheet only has 2026.` }, { status: 400 });
+  }
 
-  const byMonth = new Map<number, SheetStream[]>();
-  parsed.streams.forEach(s => { const m = Number(s.date.slice(5, 7)) - 1; byMonth.set(m, [...(byMonth.get(m) || []), s]); });
-  const summary = [...byMonth].sort((a, b) => a[0] - b[0]).map(([month, list]) => {
-    const inApp = months.find(m => m.month === month);
+  // Months are keyed "YYYY-M" (month 0-based) so one file can hold several years.
+  const keyOf = (s: SheetStream) => `${Number(s.date.slice(0, 4))}-${Number(s.date.slice(5, 7)) - 1}`;
+  const byMonth = new Map<string, SheetStream[]>();
+  parsed.streams.forEach(s => { const k = keyOf(s); byMonth.set(k, [...(byMonth.get(k) || []), s]); });
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // Singapore date
+  const summary = [...byMonth].map(([key, list]) => {
+    const [y, mo] = key.split('-').map(Number);
+    const inApp = months.find(m => m.year === y && m.month === mo);
     return {
-      month, label: monthLabel(year, month),
+      key, year: y, month: mo, label: monthLabel(y, mo),
+      started: `${y}-${String(mo + 1).padStart(2, '0')}-01` <= today,
       streams: list.length,
       withSales: list.filter(s => s.tiktok_gmv != null || s.shopee_gmv != null).length,
       gmv: Math.round(list.reduce((a, s) => a + (s.tiktok_gmv ?? 0) + (s.shopee_gmv ?? 0), 0) * 100) / 100,
       fees: Math.round(list.reduce((a, s) => a + (s.fee ?? 0), 0) * 100) / 100,
       published: inApp?.published_run_id ? { label: inApp.run_label || 'a version', streams: inApp.run_streams } : null,
     };
-  });
+  }).sort((a, b) => a.year - b.year || a.month - b.month);
   const cancelled = parsed.skipped.filter(s => s.reason === 'Cancelled').length;
   const problems = parsed.skipped.filter(s => s.reason !== 'Cancelled');
 
@@ -57,13 +75,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ sheet: parsed.sheet, months: summary, cancelled, problems, unknownHosts: parsed.unknownHosts, unknownBrands: parsed.unknownBrands });
   }
 
-  const chosen = String(form?.get('months') || '').split(',').map(Number).filter(m => byMonth.has(m));
+  const chosen = String(form?.get('months') || '').split(',').filter(k => byMonth.has(k));
   if (!chosen.length) return NextResponse.json({ error: 'Tick at least one month' }, { status: 400 });
-  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); // Singapore date
   const done: { label: string; streams: number; sales: number; runId: number; monthId: number }[] = [];
-  for (const month of chosen) {
-    const m: MonthRow = await ensureMonth(year, month);
-    const list = byMonth.get(month)!;
+  for (const key of chosen) {
+    const [y, month] = key.split('-').map(Number);
+    const m: MonthRow = await ensureMonth(y, month);
+    const list = byMonth.get(key)!;
     const res = await tx(async c => {
       const run = (await c.query(`INSERT INTO schedule_runs(month_id, label, created_by, message, stats, sections, warnings)
         VALUES ($1, $2, $3, $4, '{"imported": true}', '[]', '[]') RETURNING id`,
@@ -100,7 +118,7 @@ export async function POST(req: Request) {
       }
       return { runId: run.id as number, sales };
     });
-    done.push({ label: monthLabel(year, month), streams: list.length, sales: res.sales, runId: res.runId, monthId: m.id });
+    done.push({ label: monthLabel(y, month), streams: list.length, sales: res.sales, runId: res.runId, monthId: m.id });
   }
   revalidatePath('/admin');
   return NextResponse.json({ imported: done });

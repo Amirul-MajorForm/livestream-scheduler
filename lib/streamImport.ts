@@ -41,6 +41,7 @@ export interface StreamFile {
 }
 
 const PREFERRED = ['internal agency & total fees', 'new availability 2026', 'availability 2025'];
+const STREAM_LOG = /availability|internal agency|total fees/i;
 
 /**
  * Google Sheets' Excel export writes IMPORTRANGE / array cells as
@@ -92,28 +93,59 @@ function headerOf(ws: ExcelJS.Worksheet) {
   return null;
 }
 
+/** One year from the file (the tab with the most streams for that year). */
 export async function readStreamFile(buf: ArrayBuffer, year: number, ref: {
   hosts: { id: number; name: string }[];
   brands: { name: string }[];
 }): Promise<StreamFile> {
+  return (await readStreamFileYears(buf, [year], ref)).find(r => r.year === year)!.file;
+}
+
+/**
+ * Every year in the file (years = 'all') or the listed years. Several tabs can hold the same year
+ * (2026, archives, per-host copies): for each year the tab with the most streams wins, ties going
+ * to the preferred tab names.
+ */
+export async function readStreamFileYears(buf: ArrayBuffer, years: number[] | 'all', ref: {
+  hosts: { id: number; name: string }[];
+  brands: { name: string }[];
+}): Promise<{ year: number; file: StreamFile }[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf);
-  // Several tabs can look like a stream list (2026, 2025, archives): read each and keep the one
-  // with the most streams in the chosen year (ties go to the preferred tab names).
   const candidates = [...wb.worksheets].sort((a, b) => {
     const pa = PREFERRED.indexOf(a.name.trim().toLowerCase()), pb = PREFERRED.indexOf(b.name.trim().toLowerCase());
     return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb);
-  });
-  let best: StreamFile | null = null, anyHeader = false;
-  for (const w of candidates) {
-    const head = headerOf(w);
-    if (!head) continue;
-    anyHeader = true;
-    const res = readSheet(w, head, year, ref);
-    if (!best || res.streams.length > best.streams.length) best = res;
+  })
+    // Only the stream logs: "NEW Availability 2026", "Availability 2025", "Internal Agency & Total Fees".
+    // Planning tabs (MOOM slots), per-host copies and spare tabs look similar but would double up or mislead.
+    .filter(w => STREAM_LOG.test(w.name) && !/archive|old\b|affiliate/i.test(w.name))
+    .map(w => ({ w, head: headerOf(w) })).filter(x => x.head) as { w: ExcelJS.Worksheet; head: NonNullable<ReturnType<typeof headerOf>> }[];
+  if (!candidates.length) throw new Error('Couldn\u2019t find the stream list. Upload the Master Availability Sheet (or Revenue Sheet) as .xlsx: it needs Dates, Start Time, End Time, Talent/Host and Brand columns.');
+
+  let list: number[];
+  if (years === 'all') {
+    const found = new Set<number>();
+    for (const { w, head } of candidates) {
+      for (let r = head.row + 1; r <= w.rowCount; r++) {
+        const row = w.getRow(r);
+        if (!text(row.getCell(head.brand).value)) continue;
+        const d = parseDateCell(head.cols['dates'] ? row.getCell(head.cols['dates']).value : null);
+        if (d) found.add(Number(d.slice(0, 4)));
+      }
+    }
+    list = [...found].sort();
+  } else list = years;
+
+  const out: { year: number; file: StreamFile }[] = [];
+  for (const y of list) {
+    let best: StreamFile | null = null;
+    for (const { w, head } of candidates) {
+      const res = readSheet(w, head, y, ref);
+      if (!best || res.streams.length > best.streams.length) best = res;
+    }
+    if (best) out.push({ year: y, file: best });
   }
-  if (!anyHeader || !best) throw new Error('Couldn\u2019t find the stream list. Upload the Revenue Sheet or Master Availability Sheet as .xlsx (it needs Dates, Start Time, End Time, Talent/Host and Brand columns).');
-  return best;
+  return out;
 }
 
 function readSheet(ws: ExcelJS.Worksheet, head: NonNullable<ReturnType<typeof headerOf>>, year: number, ref: {

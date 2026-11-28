@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { money } from '@/lib/earnings';
 
 interface MonthSummary {
-  month: number; label: string; streams: number; withSales: number; gmv: number; fees: number;
+  key: string; year: number; month: number; started: boolean; label: string; streams: number; withSales: number; gmv: number; fees: number;
   published: { label: string; streams: number } | null;
 }
 interface Preview {
@@ -16,11 +16,12 @@ interface Done { label: string; streams: number; sales: number; runId: number; m
 /** Upload the Revenue / Master sheet, check what's in it month by month, then import the ticked months. */
 export default function StreamImport() {
   const [file, setFile] = useState<File | null>(null);
-  const [year, setYear] = useState(String(new Date().getFullYear()));
+  const [year, setYear] = useState('all');
+  const thisYear = new Date().getFullYear();
   const [busy, setBusy] = useState<'' | 'preview' | 'import'>('');
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [done, setDone] = useState<Done[] | null>(null);
 
   async function send(mode: 'preview' | 'import') {
@@ -35,27 +36,33 @@ export default function StreamImport() {
       if (!res.ok || data.error) { setError(data.error || 'Import failed'); return; }
       if (mode === 'preview') {
         setPreview(data); setDone(null);
-        setPicked(new Set((data as Preview).months.filter(m => !m.published).map(m => m.month)));
+        // Ticked to start with: months that have begun and aren't published in the app yet.
+        setPicked(new Set((data as Preview).months.filter(m => !m.published && m.started).map(m => m.key)));
       } else setDone(data.imported);
     } catch {
       setError('Couldn’t reach the server. Check your connection and try again.');
     } finally { setBusy(''); }
   }
-  const toggle = (m: number) => setPicked(p => { const n = new Set(p); if (n.has(m)) n.delete(m); else n.add(m); return n; });
-  const chosen = preview?.months.filter(m => picked.has(m.month)) || [];
+  const toggle = (m: string) => setPicked(p => { const n = new Set(p); if (n.has(m)) n.delete(m); else n.add(m); return n; });
+  const chosen = preview?.months.filter(m => picked.has(m.key)) || [];
 
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>Import a year of streams and sales</h2>
+      <h2 style={{ marginTop: 0 }}>Import streams and sales</h2>
       <p className="small muted">
-        From the <strong>Revenue Sheet</strong> (Internal Agency &amp; Total Fees tab) or the <strong>Master Availability Sheet</strong> (NEW Availability 2026 tab, or Availability 2025 for last year; set the year below):
-        download it as .xlsx and upload it here. Each month you tick gets a new schedule version, <em>Imported from sheet</em>, which is published so hosts see their streams,
+        Upload the <strong>Master Availability Sheet</strong> as .xlsx (File &rarr; Download &rarr; Microsoft Excel): with <em>All years in the file</em> it brings in
+        2025 (Availability 2025 tab) and 2026 (NEW Availability 2026 tab) together. The <strong>Revenue Sheet</strong> works too, but only has 2026. Each month you tick gets a new schedule version, <em>Imported from sheet</em>, which is published so hosts see their streams,
         and its GMV, payment status, rate version, tier and talent fee go into <em>Sales &amp; earnings</em>. Cancelled rows are left out.
         Earlier versions of a month are kept, so you can switch back by publishing one of them. Importing a month again replaces the sales that came from the sheet; streams that haven&rsquo;t happened yet come in without sales.
       </p>
       <div className="form-row">
         <label className="field">File<input type="file" accept=".xlsx" onChange={e => { setFile(e.target.files?.[0] || null); setPreview(null); setDone(null); }} /></label>
-        <label className="field" style={{ flex: '0 0 110px' }}>Year<input inputMode="numeric" value={year} onChange={e => setYear(e.target.value)} /></label>
+        <label className="field" style={{ flex: '0 0 190px' }}>Year
+          <select value={year} onChange={e => { setYear(e.target.value); setPreview(null); setDone(null); }}>
+            <option value="all">All years in the file</option>
+            {[thisYear + 1, thisYear, thisYear - 1, thisYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </label>
         <div style={{ flex: '0 0 auto' }}><button type="button" className="primary" disabled={!file || !!busy} onClick={() => send('preview')}>{busy === 'preview' ? 'Reading…' : 'Check file'}</button></div>
       </div>
       {error && <div className="notice bad slim" style={{ marginTop: 12 }}>{error}</div>}
@@ -63,7 +70,7 @@ export default function StreamImport() {
       {preview && !done && (
         <div style={{ marginTop: 14 }}>
           <p className="small" style={{ marginTop: 0 }}>
-            Read the <strong>{preview.sheet}</strong> tab: {preview.months.reduce((a, m) => a + m.streams, 0)} streams in {preview.months.length} months
+            Read <strong>{preview.sheet}</strong>: {preview.months.reduce((a, m) => a + m.streams, 0)} streams in {preview.months.length} months
             {preview.cancelled ? `, ${preview.cancelled} cancelled rows left out` : ''}.
           </p>
           <div className="table-wrap">
@@ -73,8 +80,8 @@ export default function StreamImport() {
               </thead>
               <tbody>
                 {preview.months.map(m => (
-                  <tr key={m.month}>
-                    <td className="cb"><input type="checkbox" checked={picked.has(m.month)} onChange={() => toggle(m.month)} aria-label={'Import ' + m.label} /></td>
+                  <tr key={m.key}>
+                    <td className="cb"><input type="checkbox" checked={picked.has(m.key)} onChange={() => toggle(m.key)} aria-label={'Import ' + m.label} /></td>
                     <td><strong>{m.label}</strong></td>
                     <td className="num">{m.streams}</td><td className="num">{m.withSales}</td>
                     <td className="num">{money(m.gmv)}</td><td className="num">{money(m.fees)}</td>
@@ -107,7 +114,7 @@ export default function StreamImport() {
               }}>
               {busy === 'import' ? 'Importing…' : `Import ${chosen.length} month${chosen.length === 1 ? '' : 's'} (${chosen.reduce((a, m) => a + m.streams, 0)} streams)`}
             </button>
-            <span className="small muted">Months already published in the app are unticked; tick them to replace.</span>
+            <span className="small muted">Months already published in the app, and months that haven&rsquo;t started, are unticked; tick them to include them.</span>
           </div>
         </div>
       )}
