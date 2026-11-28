@@ -38,7 +38,8 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const now = todayYearMonth();
   const years = await analysisYears();
-  const yearSel = sp.y === 'all' ? 'all' : (years.includes(Number(sp.y)) ? Number(sp.y) : (years.includes(now.year) ? now.year : years[0]));
+  // Opens on every year together; pick a single year from the filter.
+  const yearSel: number | 'all' = years.includes(Number(sp.y)) ? Number(sp.y) : 'all';
   const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const all = await loadAnalysis(yearSel === 'all' ? years : yearSel != null ? [yearSel] : [], today);
 
@@ -142,8 +143,8 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
 
       <form className="sales-filters" action="/admin/analysis">
         <select name="y" defaultValue={String(yearSel ?? '')} aria-label="Year">
+          <option value="all">All years{years.length > 1 ? ` (${[...years].sort()[0]}\u2013${[...years].sort().slice(-1)[0]})` : ''}</option>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
-          {years.length > 1 && <option value="all">All years</option>}
         </select>
         <label className="inline small">Months
           <select name="mf" defaultValue={sp.mf || ''} aria-label="From month"><option value="">Jan</option>{MONTH_NAMES.map((n, i) => <option key={i} value={i}>{n.slice(0, 3)}</option>)}</select>
