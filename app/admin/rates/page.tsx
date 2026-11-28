@@ -1,23 +1,24 @@
 import Link from 'next/link';
 import { query } from '@/lib/db';
 import { loadRates } from '@/lib/rates';
-import type { Rate } from '@/lib/earnings';
 import Flash from '@/components/Flash';
 import FeeCalculator from '@/components/FeeCalculator';
-import ConfirmButton from '@/components/ConfirmButton';
+import RatesTable from '@/components/RatesTable';
+import { loadBrandColors } from '@/lib/brandPalette';
 import { addRate, updateRate, duplicateRate, removeRate, importRates } from '../actions';
 
-const pct = (x: number) => String(Math.round(x * 10000) / 100);
 const PERIODS = ['BAU', 'Mega', 'All'];
 const TYPES: [string, string][] = [['any', 'Any'], ['single', 'One'], ['dual', 'Both']];
 
-export default async function RatesPage({ searchParams }: { searchParams: Promise<{ brand?: string; ok?: string; bad?: string; t?: string }> }) {
+export default async function RatesPage({ searchParams }: { searchParams: Promise<{ brand?: string; view?: string; ok?: string; bad?: string; t?: string }> }) {
   const sp = await searchParams;
   const [rates, brandRows] = await Promise.all([loadRates(), query('SELECT name FROM brands ORDER BY name')]);
   const brands = [...new Set([...brandRows.map(b => b.name as string), ...rates.map(r => r.brand)])].sort((a, b) => a.localeCompare(b));
-  const shown = sp.brand ? rates.filter(r => r.brand.toLowerCase() === sp.brand!.toLowerCase()) : rates;
-  const byBrand = new Map<string, Rate[]>();
-  shown.forEach(r => byBrand.set(r.brand, [...(byBrand.get(r.brand) || []), r]));
+  const colors = await loadBrandColors(rates.map(r => r.brand));
+  // Filters and sort carried through a save (see RatesTable); ?brand= still works as a starting filter.
+  let view: { f?: Record<string, string>; s?: { i: number; dir: 1 | -1 } } = {};
+  try { view = sp.view ? JSON.parse(sp.view) : {}; } catch { /* ignore a mangled link */ }
+  if (sp.brand && !view.f) view.f = { brand: sp.brand };
   const returnTo = '/admin/rates' + (sp.brand ? '?brand=' + encodeURIComponent(sp.brand) : '');
   const missing = brandRows.map(b => b.name as string).filter(b => !rates.some(r => r.active && r.brand.toLowerCase() === b.toLowerCase()));
 
@@ -52,47 +53,11 @@ export default async function RatesPage({ searchParams }: { searchParams: Promis
         <div className="notice warn slim">No active rate yet for: {missing.join(', ')}. Their streams will show &ldquo;No rate&rdquo; until you add one.</div>
       )}
 
-      <div className="toolbar-row">
-        <form className="inline" action="/admin/rates">
-          <select name="brand" defaultValue={sp.brand || ''}>
-            <option value="">All brands</option>
-            {[...new Set(rates.map(r => r.brand))].sort().map(b => <option key={b}>{b}</option>)}
-          </select>
-          <button type="submit">Show</button>
-        </form>
-        <span className="small muted">{shown.length} rate row{shown.length === 1 ? '' : 's'}. Edit any cell, then Save on that row. Percentages are entered as numbers, e.g. 12 for 12%.</span>
-      </div>
-
-      {/* one form per row; the row's inputs point at it with form= */}
-      <div hidden>
-        {shown.map(r => (
-          <form key={r.id} id={'rf' + r.id} action={updateRate}>
-            <input type="hidden" name="id" value={r.id} />
-            <input type="hidden" name="returnTo" value={returnTo} />
-          </form>
-        ))}
-      </div>
-
       {rates.length === 0 ? (
         <div className="card"><p style={{ margin: 0 }}>No rates yet. Import them from the Master Availability Sheet below, or add them one by one.</p></div>
       ) : (
-        <div className="table-wrap">
-          <table className="compact rates-table">
-            <thead>
-              <tr>
-                <th>Version</th><th>Period</th><th data-tip="Which streams this rate is for: one platform, both at once (TikTok & Shopee), or any">Platform</th>
-                <th>Method</th><th>Tier</th><th className="num" data-tip="GMV per hour range for this tier">GMV/h from</th><th className="num">to</th>
-                <th className="num">Base $/h</th><th className="num">Comms %</th><th className="num" data-tip="Split comms only">TikTok %</th><th className="num" data-tip="Split comms only">Shopee %</th>
-                <th className="num">Agency %</th><th>Valid from</th><th>Valid to</th><th>On</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...byBrand].map(([brand, rows]) => (
-                <BrandRows key={brand} brand={brand} rows={rows} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RatesTable rates={rates} colors={colors} returnTo="/admin/rates" initialFilters={view.f} initialSort={view.s}
+          update={updateRate} duplicate={duplicateRate} remove={removeRate} />
       )}
 
       <div className="grid2">
@@ -146,48 +111,6 @@ export default async function RatesPage({ searchParams }: { searchParams: Promis
         </form>
       </div>
       <p className="small muted">Sales are entered per month: open a month from <Link href="/admin">Months</Link> and choose <em>Sales &amp; earnings</em>.</p>
-    </>
-  );
-}
-
-function BrandRows({ brand, rows }: { brand: string; rows: Rate[] }) {
-  return (
-    <>
-      <tr className="group-row"><td colSpan={16}><strong>{brand}</strong> <span className="small muted">{rows[0].account} account</span></td></tr>
-      {rows.map(r => {
-        const f = 'rf' + r.id;
-        return (
-          <tr key={r.id} id={'rate-' + r.id} className={r.active ? '' : 'row-inactive'}>
-            <td>
-              <input form={f} type="hidden" name="brand" value={r.brand} />
-              <input form={f} type="hidden" name="account" value={r.account} />
-              <input form={f} type="hidden" name="notes" value={r.notes} />
-              <input form={f} name="label" defaultValue={r.label} className="w-lab" aria-label="Version" />
-            </td>
-            <td><select form={f} name="period" defaultValue={r.period} aria-label="Period">{PERIODS.map(p => <option key={p}>{p}</option>)}</select></td>
-            <td><select form={f} name="stream_type" defaultValue={r.stream_type} aria-label="Platform">{TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
-            <td><select form={f} name="method" defaultValue={r.method} aria-label="Method"><option value="base_comms">Base + comms</option><option value="split">Split comms</option></select></td>
-            <td><input form={f} name="tier" defaultValue={r.tier} className="w-tier" placeholder="—" aria-label="Tier" /></td>
-            <td className="num"><input form={f} name="gmv_min" defaultValue={r.gmv_min ?? ''} className="w-num" inputMode="decimal" aria-label="GMV per hour from" /></td>
-            <td className="num"><input form={f} name="gmv_max" defaultValue={r.gmv_max ?? ''} className="w-num" inputMode="decimal" aria-label="GMV per hour to" /></td>
-            <td className="num"><input form={f} name="base_per_hour" defaultValue={r.base_per_hour} className="w-num" inputMode="decimal" aria-label="Base per hour" /></td>
-            <td className="num"><input form={f} name="total_comms" defaultValue={pct(r.total_comms)} className="w-pct" inputMode="decimal" aria-label="Comms %" /></td>
-            <td className="num"><input form={f} name="tiktok_comms" defaultValue={pct(r.tiktok_comms)} className="w-pct" inputMode="decimal" aria-label="TikTok %" /></td>
-            <td className="num"><input form={f} name="shopee_comms" defaultValue={pct(r.shopee_comms)} className="w-pct" inputMode="decimal" aria-label="Shopee %" /></td>
-            <td className="num"><input form={f} name="agency_comms" defaultValue={pct(r.agency_comms)} className="w-pct" inputMode="decimal" aria-label="Agency %" /></td>
-            <td><input form={f} type="date" name="valid_from" defaultValue={r.valid_from ?? ''} aria-label="Valid from" /></td>
-            <td><input form={f} type="date" name="valid_to" defaultValue={r.valid_to ?? ''} aria-label="Valid to" /></td>
-            <td><select form={f} name="active" defaultValue={r.active ? 'on' : 'off'} aria-label="Active"><option value="on">On</option><option value="off">Off</option></select></td>
-            <td className="nw">
-              <div className="row-actions">
-                <button form={f} type="submit" className="link">Save</button>
-                <button form={f} type="submit" formAction={duplicateRate} className="link">Copy</button>
-                <ConfirmButton form={f} formAction={removeRate} className="link danger" message={`Remove this ${r.brand} rate${r.tier ? ' (' + r.tier + ')' : ''}? Streams that used it will show “No rate” unless another rate applies.`}>Remove</ConfirmButton>
-              </div>
-            </td>
-          </tr>
-        );
-      })}
     </>
   );
 }

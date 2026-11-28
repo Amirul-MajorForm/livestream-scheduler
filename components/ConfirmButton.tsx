@@ -1,15 +1,17 @@
 'use client';
 
 /** A submit button that asks for confirmation first. `form` / `formAction` let it submit a form elsewhere on the page. */
-export default function ConfirmButton({ message, children, className, form, formAction }: {
+export default function ConfirmButton({ message, children, className, form, formAction, title, ariaLabel }: {
   message: string;
+  title?: string;
+  ariaLabel?: string;
   children: React.ReactNode;
   className?: string;
   form?: string;
   formAction?: (f: FormData) => void | Promise<void>;
 }) {
   return (
-    <button type="submit" className={className} form={form} formAction={formAction} formNoValidate={!!formAction}
+    <button type="submit" className={className} form={form} formAction={formAction} formNoValidate={!!formAction} title={title} aria-label={ariaLabel}
       onClick={e => { if (!confirm(message)) e.preventDefault(); }}>
       {children}
     </button>
