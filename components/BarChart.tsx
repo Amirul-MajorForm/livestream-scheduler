@@ -28,6 +28,7 @@ export default function BarChart({ series, data, height = 200, label, grouped = 
   const band = plotW / Math.max(1, data.length);
   const bw = Math.min(34, band * 0.56);
   const y = (v: number) => T + plotH - (v / max) * plotH;
+  const labelStep = Math.max(1, Math.ceil(data.length / 10)); // thin the x labels when there are many columns (hover shows every one)
   const ticks = [0, 0.2, 0.4, 0.6, 0.8, 1].map(f => f * max); // fifths land on round numbers for 1, 2, 2.5, 5 and 10 maxima
   return (
     <figure className="chart" aria-label={label}>
@@ -67,7 +68,7 @@ export default function BarChart({ series, data, height = 200, label, grouped = 
                   : `M${x},${y1} H${x + bw} V${y1 + h} H${x} Z`;
                 return <path key={s.si} d={d0} style={{ fill: series[s.si].color }} />;
               })}
-              <text x={cx} y={H - 8} className="tick" textAnchor="middle">{d.label}</text>
+              {i % labelStep === 0 && <text x={cx} y={H - 8} className="tick" textAnchor="middle">{d.label}</text>}
             </g>
           );
         })}

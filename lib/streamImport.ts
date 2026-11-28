@@ -40,7 +40,7 @@ export interface StreamFile {
   unknownBrands: string[];
 }
 
-const PREFERRED = ['internal agency & total fees', 'new availability 2026'];
+const PREFERRED = ['internal agency & total fees', 'new availability 2026', 'availability 2025'];
 
 /**
  * Google Sheets' Excel export writes IMPORTRANGE / array cells as
@@ -98,23 +98,46 @@ export async function readStreamFile(buf: ArrayBuffer, year: number, ref: {
 }): Promise<StreamFile> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf);
+  // Several tabs can look like a stream list (2026, 2025, archives): read each and keep the one
+  // with the most streams in the chosen year (ties go to the preferred tab names).
   const candidates = [...wb.worksheets].sort((a, b) => {
     const pa = PREFERRED.indexOf(a.name.trim().toLowerCase()), pb = PREFERRED.indexOf(b.name.trim().toLowerCase());
     return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb);
   });
-  let ws: ExcelJS.Worksheet | undefined, head: ReturnType<typeof headerOf> = null;
-  for (const w of candidates) { head = headerOf(w); if (head) { ws = w; break; } }
-  if (!ws || !head) throw new Error('Couldn’t find the stream list. Upload the Revenue Sheet or Master Availability Sheet as .xlsx (it needs Dates, Start Time, End Time, Talent/Host and Brand columns).');
+  let best: StreamFile | null = null, anyHeader = false;
+  for (const w of candidates) {
+    const head = headerOf(w);
+    if (!head) continue;
+    anyHeader = true;
+    const res = readSheet(w, head, year, ref);
+    if (!best || res.streams.length > best.streams.length) best = res;
+  }
+  if (!anyHeader || !best) throw new Error('Couldn\u2019t find the stream list. Upload the Revenue Sheet or Master Availability Sheet as .xlsx (it needs Dates, Start Time, End Time, Talent/Host and Brand columns).');
+  return best;
+}
 
+function readSheet(ws: ExcelJS.Worksheet, head: NonNullable<ReturnType<typeof headerOf>>, year: number, ref: {
+  hosts: { id: number; name: string }[];
+  brands: { name: string }[];
+}): StreamFile {
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const c = head.cols;
-  const col = (row: ExcelJS.Row, name: string) => (c[name] ? row.getCell(c[name]).value : null);
+  // A merged block (one stream typed over two rows) belongs to its first row only.
+  const col = (row: ExcelJS.Row, name: string) => {
+    if (!c[name]) return null;
+    const cell = row.getCell(c[name]);
+    return cell.isMerged && cell.master && cell.master.address !== cell.address ? null : cell.value;
+  };
+  // The 2025 tab has no Period column: an unlabelled first column marks Mega streams ("MEGA").
+  const markerCol = !c['period'] && !Object.values(c).includes(1);
   const streams: SheetStream[] = [], skipped: StreamFile['skipped'] = [];
   const unknownHosts = new Set<string>(), unknownBrands = new Set<string>();
   const hostCache = new Map<string, { id: number | null; name: string }>();
 
   for (let r = head.row + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
-    const brandText = text(row.getCell(head.brand).value);
+    // 2025 tab writes "OATSIDE | Brand" / "Lays | Creator": the part after | is the account type.
+    const brandText = text(row.getCell(head.brand).value).replace(/\s*\|\s*(brand|creator)\s*$/i, '');
     const date = parseDateCell(col(row, 'dates'));
     if (!brandText || !date) continue;                       // empty day rows
     if (!date.startsWith(String(year))) continue;
@@ -143,9 +166,16 @@ export async function readStreamFile(buf: ArrayBuffer, year: number, ref: {
     const b = matchBrand(brandText, ref.brands).brand;
     if (!b) unknownBrands.add(brandText);
 
-    const p = text(col(row, 'platform')).toLowerCase();
-    const tt = p.includes('tiktok'), sp = p.includes('shopee');
-    const periodRaw = text(col(row, 'period')).toLowerCase();
+    const tiktokGmv = money(col(row, 'tiktok gmv')), shopeeGmv = money(col(row, 'shopee gmv'));
+    const pText = text(col(row, 'platform')) || text(col(row, 'stream'));   // 2025 tab calls it "Stream"
+    const p = pText.toLowerCase();
+    let tt = p.includes('tiktok'), sp = p.includes('shopee');
+    if (!tt && !sp) { tt = tiktokGmv != null; sp = shopeeGmv != null; }    // platform left blank: go by which GMV is filled in
+    const statusNote = status && !PAY_STATUSES.some(x => x && x.toLowerCase() === status.toLowerCase()) ? `Sheet status: ${status}` : '';
+    let fee = money(col(row, 'talent fee'));
+    if (fee == null && (tiktokGmv != null || shopeeGmv != null) && (tiktokGmv ?? 0) + (shopeeGmv ?? 0) === 0) fee = 0; // $0 sales: $0 fee (export drops a 0 result)
+    const marker = markerCol ? text(row.getCell(1).value) : '';
+    const periodRaw = markerCol ? (marker.toUpperCase() === 'MEGA' ? 'mega' : 'bau') : text(col(row, 'period')).toLowerCase();
     const pay = PAY_STATUSES.find(s => s && s.toLowerCase() === status.toLowerCase()) || '';
     const tier = text(col(row, 'tier'));
     streams.push({
@@ -153,16 +183,17 @@ export async function readStreamFile(buf: ArrayBuffer, year: number, ref: {
       hostText, host_id: h.id, host_name: h.name,
       brandText, brand: b?.name ?? brandText,
       period: periodRaw === 'mega' ? 'MEGA' : periodRaw === 'bau' ? 'BAU' : 'All',
-      platform: tt && sp ? 'TikTok & Shopee' : tt ? 'TikTok' : sp ? 'Shopee' : text(col(row, 'platform')) || 'TikTok',
-      room: text(col(row, 'room')),
-      approved: approval === 'approved',
+      platform: tt && sp ? 'TikTok & Shopee' : tt ? 'TikTok' : sp ? 'Shopee' : pText || 'TikTok',
+      room: text(col(row, 'room')) || text(col(row, 'location')),
+      // Tabs without an approval column (2025) are a record of streams that happened.
+      approved: approval === 'approved' || (!c['amirul approval'] && date <= today),
       pay_status: pay,
-      tiktok_gmv: money(col(row, 'tiktok gmv')),
-      shopee_gmv: money(col(row, 'shopee gmv')),
+      tiktok_gmv: tiktokGmv,
+      shopee_gmv: shopeeGmv,
       rate_label: text(col(row, 'version')),
       tier: tier.toUpperCase() === 'NA' ? '' : tier,
-      fee: money(col(row, 'talent fee')),
-      notes: text(col(row, 'notes')).slice(0, 500),
+      fee,
+      notes: [text(col(row, 'notes')), statusNote, marker && marker.toUpperCase() !== 'MEGA' ? marker : ''].filter(Boolean).join(' \u00b7 ').slice(0, 500),
     });
   }
   return { sheet: ws.name, streams, skipped, unknownHosts: [...unknownHosts].sort(), unknownBrands: [...unknownBrands].sort() };

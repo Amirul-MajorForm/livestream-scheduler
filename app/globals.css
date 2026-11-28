@@ -720,3 +720,5 @@ details.section h3 { font-size: 13px; }
   .slist.with-earn .slist-row .g { display: none; }
   .slist.with-earn .slist-row .e { grid-column: 1 / 4; grid-row: 3; justify-content: flex-start; }
 }
+td .up { color: var(--good); font-weight: 600; }
+td .down { color: var(--bad); font-weight: 600; }

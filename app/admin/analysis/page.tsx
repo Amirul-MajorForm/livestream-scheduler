@@ -103,6 +103,18 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
   }
   const campMonths = [...byCampMonth.values()].sort((a, b) => a.year - b.year || a.month - b.month);
 
+  // Year on year (shown when more than one year is in view).
+  const yearsIn = [...new Set(list.map(x => x.year))].sort();
+  const byYear = new Map<number, Totals & { months: Set<number> }>();
+  const ym = new Map<string, Totals>(); // `${month}|${year}`
+  for (const x of list) {
+    const y = byYear.get(x.year) || { ...emptyTotals(), months: new Set<number>() };
+    addTo(y, x); y.months.add(x.month); byYear.set(x.year, y);
+    const k = `${x.month}|${x.year}`; const t = ym.get(k) || emptyTotals(); addTo(t, x); ym.set(k, t);
+  }
+  const yoyMonths = [...new Set(list.map(x => x.month))].sort((a, b) => a - b);
+  const change = (now: number, before: number) => before ? `${now >= before ? '+' : ''}${Math.round(((now - before) / before) * 100)}%` : '\u2014';
+
   // Host x brand matrix (top hosts and brands by the chosen measure).
   const mval = (t?: Totals) => !t ? 0 : metric === 'fee' ? t.fee : metric === 'streams' ? t.streams : t.gmv;
   const mfmt = (v: number) => metric === 'streams' ? String(v) : money(v);
@@ -156,6 +168,43 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
             <div className="kpi"><div className="lab">GMV per hour</div><div className="v">{money(gph(tot))}</div><div className="s">{money(tot.streams ? tot.gmv / tot.streams : 0)} per stream</div></div>
             <div className="kpi"><div className="lab">Hosts &middot; brands</div><div className="v">{byHost.size} &middot; {byBrand.size}</div><div className="s">top host: {hostRows[0]?.[0] ?? '—'}</div></div>
           </div>
+
+          {yearsIn.length > 1 && (
+            <Section title="Year on year" note="Each year in view, then the same months side by side. Use the month filter to compare like-for-like periods.">
+              <div className="table-wrap">
+                <SortTable initial={{ col: 0, dir: 'asc' }}
+                  cols={[{ label: 'Year' }, { label: 'Months', num: true }, { label: 'Streams', num: true }, { label: 'Hours', num: true },
+                    { label: 'TikTok GMV', num: true }, { label: 'Shopee GMV', num: true }, { label: 'Total GMV', num: true },
+                    { label: 'GMV / month', num: true }, { label: 'GMV / hour', num: true }, { label: 'Talent fees', num: true }]}
+                  rows={yearsIn.map(y => { const a = byYear.get(y)!; return {
+                    key: String(y), sort: [y, a.months.size, a.streams, a.hours, a.tt, a.sp, a.gmv, a.gmv / a.months.size, gph(a), a.fee],
+                    cells: [<Link key="y" href={q({ y: String(y) })}><strong>{y}</strong></Link>, a.months.size, a.streams, r1(a.hours), money(a.tt), money(a.sp),
+                      <strong key="g">{money(a.gmv)}</strong>, money(a.gmv / a.months.size), money(gph(a)), money(a.fee)],
+                  }; })} />
+              </div>
+              <h3>Month by month</h3>
+              <div className="table-wrap scroll-y">
+                <SortTable initial={{ col: 0, dir: 'asc' }}
+                  cols={[{ label: 'Month' },
+                    ...yearsIn.map(y => ({ label: `${y} GMV`, num: true })),
+                    ...yearsIn.slice(1).map((y, i) => ({ label: `vs ${yearsIn[i]}`, num: true, tip: `GMV change from ${yearsIn[i]} to ${y}` })),
+                    ...yearsIn.map(y => ({ label: `${y} fees`, num: true }))]}
+                  rows={yoyMonths.map(mo => {
+                    const t = (y: number) => ym.get(`${mo}|${y}`);
+                    return {
+                      key: String(mo),
+                      sort: [mo, ...yearsIn.map(y => t(y)?.gmv ?? null),
+                        ...yearsIn.slice(1).map((y, i) => { const a = t(y)?.gmv, b = t(yearsIn[i])?.gmv; return a != null && b ? (a - b) / b : null; }),
+                        ...yearsIn.map(y => t(y)?.fee ?? null)],
+                      cells: [MONTH_NAMES[mo],
+                        ...yearsIn.map(y => t(y) ? <span key={y} data-tip={`${MONTH_NAMES[mo]} ${y}\n${t(y)!.streams} streams \u00b7 ${money(gph(t(y)!))} per hour`}>{money(t(y)!.gmv)}</span> : <span key={y} className="muted">{'\u2014'}</span>),
+                        ...yearsIn.slice(1).map((y, i) => { const a = t(y), b = t(yearsIn[i]); return a && b ? <span key={'c' + y} className={a.gmv >= b.gmv ? 'up' : 'down'}>{change(a.gmv, b.gmv)}</span> : <span key={'c' + y} className="muted">{'\u2014'}</span>; }),
+                        ...yearsIn.map(y => t(y) ? money(t(y)!.fee) : <span key={'f' + y} className="muted">{'\u2014'}</span>)],
+                    };
+                  })} />
+              </div>
+            </Section>
+          )}
 
           <Section title="By month" note="GMV split by platform, and talent fees. Hover a bar for the figures.">
             <div className="grid2">

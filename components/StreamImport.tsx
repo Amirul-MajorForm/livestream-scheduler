@@ -48,7 +48,7 @@ export default function StreamImport() {
     <div className="card">
       <h2 style={{ marginTop: 0 }}>Import a year of streams and sales</h2>
       <p className="small muted">
-        From the <strong>Revenue Sheet</strong> (Internal Agency &amp; Total Fees tab) or the <strong>Master Availability Sheet</strong> (NEW Availability tab):
+        From the <strong>Revenue Sheet</strong> (Internal Agency &amp; Total Fees tab) or the <strong>Master Availability Sheet</strong> (NEW Availability 2026 tab, or Availability 2025 for last year; set the year below):
         download it as .xlsx and upload it here. Each month you tick gets a new schedule version, <em>Imported from sheet</em>, which is published so hosts see their streams,
         and its GMV, payment status, rate version, tier and talent fee go into <em>Sales &amp; earnings</em>. Cancelled rows are left out.
         Earlier versions of a month are kept, so you can switch back by publishing one of them. Importing a month again replaces the sales that came from the sheet; streams that haven&rsquo;t happened yet come in without sales.
