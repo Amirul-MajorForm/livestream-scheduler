@@ -3,7 +3,7 @@
  * month), from a palette of distinct edge colours, each with a matching tint for the background.
  */
 /** Light tint of the edge colour on the page surface: pastel in light mode, a deep wash in dark mode. */
-const tint = (edge: string) => ({ bg: `color-mix(in srgb, ${edge} 15%, var(--surface))`, edge });
+export const tint = (edge: string) => ({ bg: `color-mix(in srgb, ${edge} 15%, var(--surface))`, edge });
 
 export const BRAND_PALETTE = [
   tint('#3b6fe0'), // blue

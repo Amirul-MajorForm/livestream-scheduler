@@ -24,7 +24,7 @@ const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
  * Month view (Monday first). Each stream shows time, brand, platform and host.
  * Hovering a stream shows its full details and any warnings (via the global TooltipLayer).
  */
-export default function MonthCalendar({ year, month, streams, saleDays, showHost = true, issues, hrefFor, colors }: {
+export default function MonthCalendar({ year, month, streams, saleDays, showHost = true, issues, hrefFor, colors, extraTip }: {
   year: number;
   month: number; // 0-based
   streams: CalStream[];
@@ -34,6 +34,8 @@ export default function MonthCalendar({ year, month, streams, saleDays, showHost
   hrefFor?: (id: number) => string;
   /** Colour each stream by brand (host view). */
   colors?: Record<string, BrandColor>;
+  /** Extra lines for a stream's hover card, by stream id (e.g. the host's earnings). */
+  extraTip?: Record<number, string>;
 }) {
   const days = new Date(year, month + 1, 0).getDate();
   const firstDow = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7; // Monday = 0
@@ -66,6 +68,7 @@ export default function MonthCalendar({ year, month, streams, saleDays, showHost
                     fmtRange(s.start_min, s.end_min) + ' ' + s.brand + ':',
                     [s.platform, s.host_name || 'No host', s.room || 'No room', s.period + (s.period === 'MEGA' && s.sale ? ' ' + s.sale : ''), s.status === 'confirmed' ? 'Confirmed' : 'Tentative'].join(' · '),
                     ...list.map(x => '\n' + x.tag + ': ' + x.detail),
+                    ...(extraTip?.[s.id] ? ['', extraTip[s.id]] : []),
                   ].join('\n');
                   const body = (
                     <>

@@ -1,18 +1,13 @@
 import Link from 'next/link';
 import PlatformTag from './PlatformTag';
+import BrandPill from './BrandPill';
 import { money } from '@/lib/earnings';
 import { fmtDate, fmtRange, MONTH_NAMES } from '@/lib/format';
 import type { HostStream } from '@/lib/hostEarnings';
+import { HOST_STATE } from '@/lib/hostState';
 
-const STATE: Record<HostStream['state'], { label: string; cls: string; tip: string }> = {
-  paid: { label: 'Paid', cls: 'ok', tip: 'Paid to you.' },
-  due: { label: 'To be paid', cls: 'accent', tip: 'Worked out, not paid yet.' },
-  pending: { label: 'Sales not in yet', cls: '', tip: 'The ops team hasn\u2019t entered this stream\u2019s sales yet, so the fee isn\u2019t worked out.' },
-  none: { label: 'No fee', cls: '', tip: 'There\u2019s no talent fee for this stream (for example a creator-account deal).' },
-  upcoming: { label: 'Upcoming', cls: '', tip: 'This stream hasn\u2019t happened yet.' },
-};
 
-export default function EarningsView({ streams, year, years, sp }: { streams: HostStream[]; year: number; years: number[]; sp: { em?: string; eb?: string } }) {
+export default function EarningsView({ streams, year, years, sp, colors = {} }: { streams: HostStream[]; year: number; years: number[]; sp: { em?: string; eb?: string }; colors?: Record<string, string> }) {
   const q = (o: { y?: number; em?: string | null; eb?: string | null }) => {
     const p = new URLSearchParams();
     const y = o.y ?? year; if (y) p.set('y', String(y));
@@ -85,7 +80,7 @@ export default function EarningsView({ streams, year, years, sp }: { streams: Ho
             <tbody>
               {brandRows.map(([b, a]) => (
                 <tr key={b} className={sp.eb === b ? 'sel' : ''}>
-                  <td><Link href={q({ eb: sp.eb === b ? null : b })}>{b}</Link></td>
+                  <td><Link href={q({ eb: sp.eb === b ? null : b })}><BrandPill brand={b} color={colors[b]} /></Link></td>
                   <td className="num">{a.n}</td><td className="num">{money(a.gmv)}</td><td className="num"><strong>{money(a.fee)}</strong></td>
                   <td className="bar-col"><div className="bar"><span style={{ width: (a.fee / maxBrand * 100) + '%' }} /></div></td>
                 </tr>
@@ -105,11 +100,11 @@ export default function EarningsView({ streams, year, years, sp }: { streams: Ho
           <table className="compact one-line">
             <thead><tr><th>Date</th><th>Time</th><th>Brand</th><th>Platform</th><th className="num">TikTok GMV</th><th className="num">Shopee GMV</th><th className="num">Your earnings</th><th>Status</th></tr></thead>
             <tbody>
-              {listed.map(s => { const st = STATE[s.state]; return (
+              {listed.map(s => { const st = HOST_STATE[s.state]; return (
                 <tr key={s.key}>
                   <td>{fmtDate(s.date)}</td>
                   <td>{fmtRange(s.start_min, s.end_min)}</td>
-                  <td><strong>{s.brand}</strong>{s.period === 'MEGA' && <> <span className="badge mega">Mega</span></>}{s.coHosts.length > 0 && <> <span className="badge" data-tip={`Shared with ${s.coHosts.join(', ')}: you get an equal share of the fee.`}>with {s.coHosts.join(', ')}</span></>}</td>
+                  <td><BrandPill brand={s.brand} color={colors[s.brand]} />{s.period === 'MEGA' && <> <span className="badge mega">Mega</span></>}{s.coHosts.length > 0 && <> <span className="badge" data-tip={`Shared with ${s.coHosts.join(', ')}: you get an equal share of the fee.`}>with {s.coHosts.join(', ')}</span></>}</td>
                   <td><PlatformTag platform={s.platform} short /></td>
                   <td className="num">{s.tiktok != null ? money(s.tiktok) : '\u2014'}</td>
                   <td className="num">{s.shopee != null ? money(s.shopee) : '\u2014'}</td>

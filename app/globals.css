@@ -706,3 +706,17 @@ details.section h3 { font-size: 13px; }
 .edit-grid input, .edit-grid select { font-size: 12.5px; padding: 4px 6px; width: 100%; }
 .edit-grid input.n { text-align: right; }
 .edit-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Host schedule list with sales and earnings */
+.slist.with-earn .slist-row { grid-template-columns: 84px 92px minmax(190px, 1.8fr) 112px minmax(64px, .6fr) minmax(70px, .7fr) 96px 160px 104px; }
+.slist-row .num { text-align: right; font-variant-numeric: tabular-nums; }
+.slist-row .e { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.slist-row .b .brand-pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.slist-row.head .num { text-align: right; }
+.month-earn { margin: 4px 0 0; }
+.month-earn strong { color: var(--good); font-family: var(--font-display); }
+@media (max-width: 768px) {
+  .slist.with-earn .slist-row { grid-template-columns: auto auto 1fr; }
+  .slist.with-earn .slist-row .g { display: none; }
+  .slist.with-earn .slist-row .e { grid-column: 1 / 4; grid-row: 3; justify-content: flex-start; }
+}

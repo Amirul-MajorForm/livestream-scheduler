@@ -9,7 +9,12 @@ import AvailabilityGrid from '@/components/AvailabilityGrid';
 import StreamList, { type StreamRow } from '@/components/StreamList';
 import MonthCalendar from '@/components/MonthCalendar';
 import PlatformTag from '@/components/PlatformTag';
-import { brandColors } from '@/lib/colors';
+import { tint } from '@/lib/colors';
+import { loadBrandColors } from '@/lib/brandPalette';
+import { loadHostMonth } from '@/lib/hostEarnings';
+import { HOST_STATE } from '@/lib/hostState';
+import { money } from '@/lib/earnings';
+import BrandPill from '@/components/BrandPill';
 import { HOST_LINKS } from '@/lib/hostNav';
 
 export const dynamic = 'force-dynamic';
@@ -55,11 +60,7 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
   const { start, end } = monthRange(current.year, current.month);
   let content: React.ReactNode;
   if (tab === 'schedule') {
-    const [sales, brandRows] = await Promise.all([
-      query('SELECT name, day FROM sale_days WHERE month_id = $1', [current.id]),
-      query('SELECT name FROM brands ORDER BY sort_order, name'),
-    ]);
-    const colors = brandColors(brandRows.map(b => b.name));
+    const sales = await query('SELECT name, day FROM sale_days WHERE month_id = $1', [current.id]);
     const streams = current.published_run_id
       ? await query<StreamRow>(
         `SELECT id, date, start_min, end_min, host_name, brand, period, sale, platform, room, status
@@ -68,6 +69,17 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
          ORDER BY date, start_min`, [current.published_run_id, user.hostId, host?.name || ''])
       : [];
     const hours = Math.round(streams.reduce((a, x) => a + (x.end_min - x.start_min), 0) / 6) / 10;
+    // Same brand colours as everywhere else in the app; calendar tiles use a tint of each.
+    const edges = await loadBrandColors(streams.map(x => x.brand));
+    const colors = Object.fromEntries(Object.entries(edges).map(([b, e]) => [b, tint(e)]));
+    // This month's sales and the host's share of each fee.
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const earned = host ? await loadHostMonth({ id: host.id, name: host.name }, current, today) : [];
+    const earnBy = new Map(earned.filter(e => e.streamId != null).map(e => [e.streamId!, e]));
+    const monthFee = earned.reduce((a, e) => a + (e.fee ?? 0), 0);
+    const monthGmv = earned.reduce((a, e) => a + (e.gmv ?? 0), 0);
+    const monthPaid = earned.filter(e => e.state === 'paid').reduce((a, e) => a + (e.fee ?? 0), 0);
+    const withSales = earned.filter(e => e.gmv != null || e.fee != null).length;
     content = current.published_run_id ? (
       <div className="card" data-tour="host-schedule">
         <div className="host-sched-head">
@@ -78,6 +90,12 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
               <span className="badge ok">{streams.filter(x => x.status === 'confirmed').length} confirmed</span>{' '}
               {streams.some(x => x.status !== 'confirmed') && <span className="badge warn">{streams.filter(x => x.status !== 'confirmed').length} tentative</span>}
             </p>
+            {withSales > 0 && (
+              <p className="month-earn">
+                Earned <strong>{money(monthFee)}</strong>
+                <span className="muted"> &middot; {money(monthPaid)} paid &middot; sales (GMV) {money(monthGmv)} over {withSales} stream{withSales === 1 ? '' : 's'}</span>
+              </p>
+            )}
           </div>
           <div className="seg" role="tablist" aria-label="View">
             <Link href={link({ view: 'list' })} className={view === 'list' ? 'on' : ''} role="tab" aria-selected={view === 'list'}>List</Link>
@@ -86,17 +104,18 @@ export default async function HostHome({ searchParams }: { searchParams: Promise
         </div>
         {streams.length > 0 && (
           <div className="color-key" aria-label="Colour key">
-            {[...new Set(streams.map(x => x.brand))].map(b => (
-              <span key={b} className="key-brand" style={{ background: colors[b]?.bg, borderLeftColor: colors[b]?.edge }}>{b}</span>
-            ))}
+            {[...new Set(streams.map(x => x.brand))].map(b => <BrandPill key={b} brand={b} color={edges[b]} />)}
             <span className="key-sep" />
-            {[...new Set(streams.map(x => x.platform))].map(p => <PlatformTag key={p} platform={p} />)}
+            {['TikTok', 'Shopee'].filter(pl => streams.some(x => x.platform.toLowerCase().includes(pl.toLowerCase()))).map(pl => <PlatformTag key={pl} platform={pl} />)}
           </div>
         )}
         {view === 'calendar'
           ? <MonthCalendar year={current.year} month={current.month} streams={streams} showHost={false} colors={colors}
-              saleDays={Object.fromEntries(sales.map(s => [s.day, s.name]))} />
-          : <StreamList streams={streams} colors={colors} />}
+              saleDays={Object.fromEntries(sales.map(s => [s.day, s.name]))}
+              extraTip={Object.fromEntries([...earnBy].map(([id, e]) => [id, e.fee != null
+                ? `Your earnings ${money(e.fee)} (${HOST_STATE[e.state].label})` + (e.gmv != null ? `\nSales (GMV) ${money(e.gmv)}` : '')
+                : HOST_STATE[e.state].label]))} />
+          : <StreamList streams={streams} brandColors={edges} earnings={earnBy} />}
       </div>
     ) : (
       <div className="card" data-tour="host-schedule">

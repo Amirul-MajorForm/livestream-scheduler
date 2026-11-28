@@ -3,6 +3,7 @@ import { one } from '@/lib/db';
 import { todayYearMonth } from '@/lib/data';
 import { loadHostEarnings, hostYears } from '@/lib/hostEarnings';
 import { HOST_LINKS } from '@/lib/hostNav';
+import { loadBrandColors } from '@/lib/brandPalette';
 import AppShell from '@/components/AppShell';
 import EarningsView from '@/components/EarningsView';
 
@@ -25,7 +26,7 @@ export default async function HostEarnings({ searchParams }: { searchParams: Pro
           <h1 data-tour="title">My earnings</h1>
         </div>
       </div>
-      <EarningsView streams={streams} year={year} years={years} sp={sp} />
+      <EarningsView streams={streams} year={year} years={years} sp={sp} colors={await loadBrandColors(streams.map(x => x.brand))} />
     </AppShell>
   );
 }
